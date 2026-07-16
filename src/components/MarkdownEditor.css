@@ -1,0 +1,169 @@
+.md-editor {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.md-editor--preview {
+  border-radius: 8px;
+}
+
+.md-editor-loading {
+  flex: 1;
+  min-height: 8rem;
+}
+
+.md-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-elevated);
+  flex-shrink: 0;
+}
+
+.md-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  width: auto;
+  margin: 0;
+}
+
+.md-toolbar-btn:hover:not(:disabled) {
+  background: var(--bg);
+  border-color: var(--border);
+}
+
+.md-toolbar-btn.is-active {
+  background: var(--primary-subtle);
+  color: var(--primary-text);
+  border-color: var(--primary);
+}
+
+.md-toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.md-toolbar-sep {
+  width: 1px;
+  height: 1.25rem;
+  margin: 0 0.2rem;
+  background: var(--border);
+}
+
+.md-editor .tiptap,
+.md-editor .md-editor-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1.15rem;
+  outline: none;
+  line-height: 1.6;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.md-editor .tiptap > *:first-child,
+.md-editor .md-editor-content > *:first-child {
+  margin-top: 0;
+}
+
+.md-editor .tiptap > *:last-child,
+.md-editor .md-editor-content > *:last-child {
+  margin-bottom: 0;
+}
+
+.md-editor .tiptap p,
+.md-editor .md-editor-content p {
+  margin: 0.55em 0;
+}
+
+.md-editor .tiptap h1,
+.md-editor .md-editor-content h1 {
+  margin: 0.9em 0 0.4em;
+  font-size: 1.55rem;
+  line-height: 1.25;
+}
+
+.md-editor .tiptap h2,
+.md-editor .md-editor-content h2 {
+  margin: 0.9em 0 0.4em;
+  font-size: 1.25rem;
+  line-height: 1.3;
+}
+
+.md-editor .tiptap h3,
+.md-editor .md-editor-content h3 {
+  margin: 0.85em 0 0.35em;
+  font-size: 1.05rem;
+  line-height: 1.35;
+}
+
+.md-editor .tiptap ul,
+.md-editor .tiptap ol,
+.md-editor .md-editor-content ul,
+.md-editor .md-editor-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.md-editor .tiptap li,
+.md-editor .md-editor-content li {
+  margin: 0.2em 0;
+}
+
+.md-editor .tiptap blockquote,
+.md-editor .md-editor-content blockquote {
+  margin: 0.75em 0;
+  padding: 0.15em 0 0.15em 0.9em;
+  border-left: 3px solid var(--border);
+  color: var(--text-muted);
+}
+
+.md-editor .tiptap code,
+.md-editor .md-editor-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.md-editor .tiptap hr,
+.md-editor .md-editor-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.25em 0;
+}
+
+.md-editor .tiptap:focus,
+.md-editor .md-editor-content:focus {
+  outline: none;
+}
+
+.md-editor-fill {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.md-editor-fill .md-editor {
+  flex: 1;
+}
