@@ -284,6 +284,7 @@ a:hover {
   color: var(--text);
 }
 
+
 .top-bar nav {
   display: flex;
   gap: 1rem;

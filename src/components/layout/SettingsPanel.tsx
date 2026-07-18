@@ -156,7 +156,7 @@ export function SettingsPanel({ open, onClose }: Props) {
 
           <section>
             <h3>{t("settings.promptTailor")}</h3>
-            <p className="hint">Placeholders: {"{{role_name}}"}, {"{{base_resume}}"}, {"{{base_letter}}"}, {"{{ad_json}}"}</p>
+            <p className="hint">{t("settings.promptTailorHint")}</p>
             <div className="settings-prompt-block">
               <textarea rows={8} value={form.prompt_tailor_docs} onChange={(e) => setForm({ ...form, prompt_tailor_docs: e.target.value })} />
               <button type="button" className="btn btn-secondary" onClick={() => resetPrompt("prompt_tailor_docs")}>{t("settings.resetDefault")}</button>

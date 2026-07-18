@@ -1,16 +1,23 @@
 import type { AiProvider, ProfileSettings } from "../types";
 
-/** Always appended to tailoring requests — cannot be removed via Settings. */
+/** Always appended to tailoring system prompts — cannot be removed via Settings. */
 const TAILOR_FACTUAL_GUARDRAILS = `CRITICAL — Factual accuracy (non-negotiable):
 - Never invent, add, or change any fact, employer, job title, degree, date, certification, skill, or achievement.
 - Never change numbers: years of experience, counts, percentages, team sizes, budgets, or tenure must match the base documents exactly.
 - Never inflate, exaggerate, round up, or boast. If the base says 10 years, the output must say 10 years — not 20, not "two decades", not "extensive experience" unless that exact wording appears in the base documents.
 - Every quantitative claim must be copied faithfully from the base resume or base personal letter.`;
 
+/** Balanced creativity vs. factual adherence for generation calls. */
+const AI_TEMPERATURE = 0.5;
+
 interface AiGenerateRequest {
   settings: ProfileSettings;
-  staticPrompt: string;
-  dynamicContent: string;
+  /** Instructions / rules — sent as system prompt. */
+  systemPrompt: string;
+  /** Job data and documents — sent as user message only. */
+  userPrompt: string;
+  /** When true: Gemini sets responseMimeType to application/json. */
+  responseJson?: boolean;
 }
 
 interface GeminiCacheEntry {
@@ -24,8 +31,8 @@ function normalizeGeminiModelId(model: string): string {
   return model.startsWith("models/") ? model.slice("models/".length) : model;
 }
 
-function geminiCacheKey(model: string, staticPrompt: string): string {
-  return `${model}::${staticPrompt}`;
+function geminiCacheKey(model: string, systemPrompt: string): string {
+  return `${model}::${systemPrompt}`;
 }
 
 function getProvider(settings: ProfileSettings): AiProvider {
@@ -51,12 +58,19 @@ function extractGeminiText(data: {
   return text.trim();
 }
 
+function geminiGenerationConfig(responseJson: boolean | undefined) {
+  return {
+    temperature: AI_TEMPERATURE,
+    ...(responseJson ? { responseMimeType: "application/json" as const } : {}),
+  };
+}
+
 async function getOrCreateGeminiCache(
   apiKey: string,
   model: string,
-  staticPrompt: string,
+  systemPrompt: string,
 ): Promise<string | null> {
-  const key = geminiCacheKey(model, staticPrompt);
+  const key = geminiCacheKey(model, systemPrompt);
   const existing = geminiCacheStore.get(key);
   if (existing && existing.expiresAt > Date.now() + 60_000) {
     return existing.name;
@@ -71,7 +85,8 @@ async function getOrCreateGeminiCache(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: modelResource,
-          contents: [{ role: "user", parts: [{ text: staticPrompt }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: "user", parts: [{ text: "(cached system instructions)" }] }],
           ttl: "3600s",
         }),
       },
@@ -93,12 +108,14 @@ async function getOrCreateGeminiCache(
 
 async function generateWithGemini({
   settings,
-  staticPrompt,
-  dynamicContent,
+  systemPrompt,
+  userPrompt,
+  responseJson,
 }: AiGenerateRequest): Promise<string> {
   const apiKey = settings.gemini_api_key;
   const model = normalizeGeminiModelId(settings.gemini_model);
-  const cacheName = await getOrCreateGeminiCache(apiKey, model, staticPrompt);
+  const generationConfig = geminiGenerationConfig(responseJson);
+  const cacheName = await getOrCreateGeminiCache(apiKey, model, systemPrompt);
 
   if (cacheName) {
     const res = await fetch(
@@ -108,9 +125,8 @@ async function generateWithGemini({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cachedContent: cacheName,
-          contents: [
-            { role: "user", parts: [{ text: dynamicContent }] },
-          ],
+          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+          generationConfig,
         }),
       },
     );
@@ -119,19 +135,15 @@ async function generateWithGemini({
     }
   }
 
-  // Fallback: static-first prompt for implicit caching on Gemini 2.5+
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: `${staticPrompt}\n\n---\n\n${dynamicContent}` }],
-          },
-        ],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+        generationConfig,
       }),
     },
   );
@@ -144,8 +156,8 @@ async function generateWithGemini({
 
 async function generateWithAnthropic({
   settings,
-  staticPrompt,
-  dynamicContent,
+  systemPrompt,
+  userPrompt,
 }: AiGenerateRequest): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -158,14 +170,15 @@ async function generateWithAnthropic({
     body: JSON.stringify({
       model: settings.anthropic_model,
       max_tokens: 16384,
+      temperature: AI_TEMPERATURE,
       system: [
         {
           type: "text",
-          text: staticPrompt,
+          text: systemPrompt,
           cache_control: { type: "ephemeral" },
         },
       ],
-      messages: [{ role: "user", content: dynamicContent }],
+      messages: [{ role: "user", content: userPrompt }],
     }),
   });
   if (!res.ok) {
@@ -217,17 +230,30 @@ function includeDocInPrompt(
   return content.trim().length > 0;
 }
 
-function buildTailorOutputInstructions(options: Pick<TailorOptions, "tailorResume" | "tailorLetter">): string {
+function buildTailorJsonSchema(
+  options: Pick<TailorOptions, "tailorResume" | "tailorLetter">,
+): string {
   if (options.tailorResume && options.tailorLetter) {
-    return 'Respond with JSON only (no markdown fences): {"resume": "...markdown...", "letter": "...markdown..."}';
+    return 'Expected JSON shape: {"resume": "...markdown...", "letter": "...markdown..."}';
   }
   if (options.tailorResume) {
-    return 'Respond with JSON only (no markdown fences): {"resume": "...markdown..."}. Do not include a letter.';
+    return 'Expected JSON shape: {"resume": "...markdown..."}. Do not include a letter key.';
   }
   if (options.tailorLetter) {
-    return 'Respond with JSON only (no markdown fences): {"letter": "...markdown..."}. Do not include a resume — the resume is a fixed attachment.';
+    return 'Expected JSON shape: {"letter": "...markdown..."}. Do not include a resume key — the resume is a fixed attachment.';
   }
   throw new Error("Nothing to tailor");
+}
+
+/** Claude-only: force raw JSON in the system prompt (Gemini uses responseMimeType instead). */
+function buildClaudeJsonOutputRules(
+  options: Pick<TailorOptions, "tailorResume" | "tailorLetter">,
+): string {
+  return `OUTPUT FORMAT (mandatory):
+- Respond with a single valid JSON object only.
+- Do not include any preamble, explanation, apology, or markdown code fences (no \`\`\`json).
+- Do not write phrases like "Here is your JSON:" before the object.
+- ${buildTailorJsonSchema(options)}`;
 }
 
 function parseTailorResponse(
@@ -268,7 +294,7 @@ function parseTailorResponse(
   return { resume, letter };
 }
 
-function buildTailorDynamic(
+function buildTailorUserPrompt(
   roleName: string,
   baseResume: string,
   baseLetter: string,
@@ -286,18 +312,21 @@ function buildTailorDynamic(
     baseLetter,
   );
 
-  const lines: string[] = [];
-  if (options.tailorResume && options.tailorLetter) {
-    lines.push("Tailor both the resume and personal letter.");
-  } else if (options.tailorResume) {
-    lines.push("Tailor only the resume.");
+  const lines: string[] = [
+    "Here is the job ad and my base documents. Tailor them according to your system instructions and return the JSON.",
+    "",
+    `Role name: ${roleName}`,
+  ];
+
+  if (options.tailorResume && !options.tailorLetter) {
+    lines.push("", "Scope: tailor only the resume.");
     if (!includeLetter) lines.push("The personal letter will be attached unchanged.");
-  } else {
-    lines.push("Tailor only the personal letter.");
+  } else if (options.tailorLetter && !options.tailorResume) {
+    lines.push("", "Scope: tailor only the personal letter.");
     if (!includeResume) lines.push("The resume will be attached unchanged.");
   }
 
-  lines.push("", `Role name: ${roleName}`);
+  lines.push("", "Job ad (JSON):", adJson);
 
   if (includeResume) {
     lines.push("", "Base resume:", baseResume);
@@ -306,18 +335,17 @@ function buildTailorDynamic(
     lines.push("", "Base personal letter:", baseLetter);
   }
 
-  lines.push("", "Job ad (JSON):", adJson);
   return lines.join("\n");
 }
 
-function buildEmailDynamic(
+function buildEmailUserPrompt(
   filledTemplate: string,
   adJson: string,
   company: string,
   contactName: string,
   jobTitle: string,
 ): string {
-  return `Use the following inputs for the placeholders in your instructions.
+  return `Here is the email template and job context. Write the email body according to your system instructions.
 
 Email template (filled):
 ${filledTemplate}
@@ -353,12 +381,20 @@ export async function tailorDocuments(
   }
 
   const providerLabel = getAiProviderLabel(settings);
-  const outputInstructions = buildTailorOutputInstructions(options);
+  const provider = getProvider(settings);
   const tailorPrompt = resolveTailorPrompt(settings, roleTailorPrompt);
+
+  // Gemini: responseMimeType forces JSON; only need the expected keys.
+  // Claude: no structured-output param, so enforce raw JSON in the system prompt.
+  const outputRules = provider === "anthropic"
+    ? buildClaudeJsonOutputRules(options)
+    : buildTailorJsonSchema(options);
+
   const text = await generateText({
     settings,
-    staticPrompt: `${tailorPrompt}\n\n${TAILOR_FACTUAL_GUARDRAILS}\n\n${outputInstructions}`,
-    dynamicContent: buildTailorDynamic(roleName, baseResume, baseLetter, adJson, options),
+    systemPrompt: `${tailorPrompt}\n\n${TAILOR_FACTUAL_GUARDRAILS}\n\n${outputRules}`,
+    userPrompt: buildTailorUserPrompt(roleName, baseResume, baseLetter, adJson, options),
+    responseJson: true,
   });
 
   return parseTailorResponse(text, options, providerLabel);
@@ -381,8 +417,8 @@ export async function generateEmailBody(
 
   return generateText({
     settings,
-    staticPrompt: settings.prompt_email_note,
-    dynamicContent: buildEmailDynamic(
+    systemPrompt: settings.prompt_email_note,
+    userPrompt: buildEmailUserPrompt(
       filledTemplate,
       adJson,
       company,
