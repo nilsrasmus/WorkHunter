@@ -45,7 +45,6 @@ export function ProfileMenu() {
         <>
           <div className="menu-backdrop" onClick={() => setOpen(false)} />
           <div className="dropdown-menu">
-            <button type="button" onClick={() => { setOpen(false); navigate("/roles"); }}>{t("menu.roles")}</button>
             <button type="button" onClick={switchAccount}>{t("menu.switchAccount")}</button>
             <hr />
             <button type="button" className="logout-btn" onClick={logout}>{t("menu.logout")}</button>

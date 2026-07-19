@@ -20,7 +20,8 @@ export function TopBar() {
           <Link to="/" className="logo">WorkHunter</Link>
           <nav>
             <Link to="/" className={location.pathname === "/" ? "active" : ""}>{t("nav.search")}</Link>
-            <Link to="/archive" className={location.pathname === "/archive" ? "active" : ""}>{t("nav.archive")}</Link>
+            <Link to="/archive" className={location.pathname.startsWith("/archive") ? "active" : ""}>{t("nav.archive")}</Link>
+            <Link to="/roles" className={location.pathname.startsWith("/roles") ? "active" : ""}>{t("nav.roles")}</Link>
           </nav>
         </div>
         <div className="top-bar-right">
