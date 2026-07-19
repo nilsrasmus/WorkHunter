@@ -11,6 +11,8 @@ import { EmailPage } from "./pages/EmailPage";
 import { ApplyPage } from "./pages/ApplyPage";
 import { ArchivePage } from "./pages/ArchivePage";
 import { RolesPage } from "./pages/RolesPage";
+import "@fontsource-variable/geist/wght.css";
+import "@fontsource-variable/geist-mono/wght.css";
 import "./App.css";
 
 function AppRoutes() {

@@ -1,55 +1,238 @@
+/* ==========================================================================
+   WorkHunter design tokens — sleek/professional direction, hunter green accent
+   Toggle dark mode by setting data-theme="dark" on <html> or <body>.
+   ========================================================================== */
+
 :root {
-  --doc-preview-height: 110vh;
-  --preview-bg: #ffffff;
+  /* Surfaces */
+  --bg: #F5F6F7;
+  --surface: #FFFFFF;
+  --surface-2: #F8F9FA;
+  --border: #E3E5E8;
+  --border-strong: #CDD1D6;
 
-  /* WorkHunter theme */
-  --wh-bg: #eef1f6;
-  --wh-surface: #ffffff;
-  --wh-surface-muted: #f8fafc;
-  --wh-text: #0f172a;
-  --wh-text-muted: #64748b;
-  --wh-border: #cbd5e1;
+  /* Text */
+  --text: #12161A;
+  --text-2: #596570;
+  --text-3: #8B95A0;
 
-  /* Accent: blue (primary actions) + cyan (highlights) */
-  --wh-accent: #2563eb;
-  --wh-accent-hover: #1d4ed8;
-  --wh-accent-subtle: #dbeafe;
-  --wh-accent-text: #1e3a8a;
-  --wh-highlight: #0891b2;
-  --wh-highlight-subtle: #cffafe;
-  --wh-highlight-text: #0e7490;
+  /* Accent — hunter green */
+  --accent: #1B6E4C;
+  --accent-hover: #155A3E;
+  --accent-bg: #E5F2EA;
+  --accent-on: #FFFFFF;
 
-  --wh-danger: #dc2626;
-  --wh-danger-hover: #b91c1c;
-  --wh-danger-subtle: #fee2e2;
-  --wh-warning-bg: #fef3c7;
-  --wh-warning-text: #92400e;
-  --wh-success: #059669;
+  /* Danger */
+  --danger: #B93A2B;
+  --danger-hover: #9C3123;
+  --danger-bg: #FBEAE7;
+
+  /* Application-method tags */
+  --tag-email: #8A5D0C;
+  --tag-email-bg: #FBF1D8;
+  --tag-web: #2A6690;
+  --tag-web-bg: #E7F1F7;
+  --tag-remote: #1B6E4C;
+  --tag-remote-bg: #E5F2EA;
+
+  /* Type */
+  --font-sans: 'Geist Variable', system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, "SF Mono", Consolas, monospace;
+
+  /* Radius */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --r-pill: 999px;
+
+  /* Spacing scale */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-7: 32px; --sp-8: 40px;
 }
 
-/* Aliases for app CSS */
+[data-theme="dark"] {
+  --bg: #101316;
+  --surface: #191D22;
+  --surface-2: #1F242A;
+  --border: #262B32;
+  --border-strong: #383F47;
+
+  --text: #EEF0F2;
+  --text-2: #9AA4AF;
+  --text-3: #67717C;
+
+  --accent: #3CAE7C;
+  --accent-hover: #4EC28E;
+  --accent-bg: #16281F;
+  --accent-on: #0A130E;
+
+  --danger: #E2695A;
+  --danger-hover: #EC7C6E;
+  --danger-bg: #34201C;
+
+  --tag-email: #E8C168;
+  --tag-email-bg: #322910;
+  --tag-web: #82BCE3;
+  --tag-web-bg: #16242D;
+  --tag-remote: #3CAE7C;
+  --tag-remote-bg: #16281F;
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+h2 { font-size: 16px; font-weight: 600; margin: 0; }
+h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); margin: 0 0 12px; }
+
+.mono { font-family: var(--font-mono); }
+
+/* ==========================================================================
+   Buttons — maps onto existing .btn / .btn-primary / .btn-secondary / .btn-danger / .btn-icon
+   ========================================================================== */
+.btn {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: var(--r-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.btn-primary { background: var(--accent); color: var(--accent-on); }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary { background: transparent; color: var(--text); border-color: var(--border-strong); }
+.btn-secondary:hover { background: var(--surface-2); }
+.btn-danger { background: transparent; color: var(--danger); border-color: var(--danger-bg); }
+.btn-danger:hover { background: var(--danger-bg); }
+.btn-icon {
+  width: 36px; height: 36px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--text-2); border-color: var(--border);
+}
+.btn-icon:hover { background: var(--surface-2); }
+
+/* ==========================================================================
+   Form fields
+   ========================================================================== */
+input, select, textarea {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  padding: 9px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; }
+
+/* ==========================================================================
+   Badges — maps onto .badge / .badge-method
+   ========================================================================== */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+}
+.badge-web    { background: var(--tag-web-bg);    color: var(--tag-web); }
+.badge-email  { background: var(--tag-email-bg);  color: var(--tag-email); }
+.badge-remote { background: var(--tag-remote-bg); color: var(--tag-remote); }
+
+/* ==========================================================================
+   Cards — maps onto .job-card / .archive-item
+   ========================================================================== */
+.job-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  transition: border-color .12s ease;
+}
+.job-card:hover { border-color: var(--border-strong); }
+
+/* ==========================================================================
+   Modal — maps onto .modal-overlay / .modal
+   ========================================================================== */
+.modal-overlay { background: rgba(10, 14, 12, 0.5); }
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+.modal-header, .modal-footer { border-color: var(--border); }
+
+/* ==========================================================================
+   Danger zone — maps onto .danger-zone
+   ========================================================================== */
+.danger-zone {
+  border: 1px solid var(--danger-bg);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+} 
+
 :root {
-  --bg: var(--wh-bg);
-  --surface: var(--wh-surface);
-  --surface-elevated: var(--wh-surface-muted);
-  --border: var(--wh-border);
-  --text: var(--wh-text);
-  --text-muted: var(--wh-text-muted);
-  --primary: var(--wh-accent);
-  --danger: var(--wh-danger);
+  --doc-preview-height: 110vh;
+  --preview-bg: var(--surface);
+
+  /* WorkHunter theme — maps onto design tokens above */
+  --wh-bg: var(--bg);
+  --wh-surface: var(--surface);
+  --wh-surface-muted: var(--surface-2);
+  --wh-text: var(--text);
+  --wh-text-muted: var(--text-2);
+  --wh-border: var(--border);
+
+  --wh-accent: var(--accent);
+  --wh-accent-hover: var(--accent-hover);
+  --wh-accent-subtle: var(--accent-bg);
+  --wh-accent-text: var(--accent);
+  --wh-highlight: var(--tag-web);
+  --wh-highlight-subtle: var(--tag-web-bg);
+  --wh-highlight-text: var(--tag-web);
+
+  --wh-danger: var(--danger);
+  --wh-danger-hover: var(--danger-hover);
+  --wh-danger-subtle: var(--danger-bg);
+  --wh-warning-bg: var(--tag-email-bg);
+  --wh-warning-text: var(--tag-email);
+  --wh-success: var(--accent);
+}
+
+/* Aliases for app CSS (do not reassign --bg/--surface/--border/--text/--danger) */
+:root {
+  --surface-elevated: var(--surface-2);
+  --text-muted: var(--text-2);
+  --primary: var(--accent);
   --radius: 6px;
-  --on-primary: #ffffff;
-  --on-danger: #ffffff;
-  --primary-subtle: var(--wh-accent-subtle);
-  --primary-text: var(--wh-accent-text);
-  --warning-bg: var(--wh-warning-bg);
-  --warning-text: var(--wh-warning-text);
-  --warning-border: #fcd34d;
-  --danger-subtle: var(--wh-danger-subtle);
-  --danger-border: #fecaca;
-  --success: var(--wh-success);
-  --badge-bg: var(--wh-highlight-subtle);
-  --badge-text: var(--wh-highlight-text);
+  --on-primary: var(--accent-on);
+  --on-danger: var(--accent-on);
+  --primary-subtle: var(--accent-bg);
+  --primary-text: var(--accent);
+  --warning-bg: var(--tag-email-bg);
+  --warning-text: var(--tag-email);
+  --warning-border: var(--tag-email);
+  --danger-subtle: var(--danger-bg);
+  --danger-border: var(--danger-bg);
+  --success: var(--accent);
+  --badge-bg: var(--tag-web-bg);
+  --badge-text: var(--tag-web);
 
   /* Shared controls (search-page baseline) */
   --control-padding: 0.4rem 0.55rem;

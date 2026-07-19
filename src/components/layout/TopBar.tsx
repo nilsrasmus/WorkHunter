@@ -4,6 +4,7 @@ import { useI18n } from "../../lib/i18n";
 import { useSession } from "../../context/SessionContext";
 import { ProfileMenu } from "./ProfileMenu";
 import { SettingsPanel } from "./SettingsPanel";
+import { IconSettings } from '@tabler/icons-react'
 
 export function TopBar() {
   const { profile, settings } = useSession();
@@ -28,7 +29,7 @@ export function TopBar() {
           {settings?.test_mode && (
             <span className="test-banner">{t("top.testMode")}</span>
           )}
-          <button type="button" className="btn-icon settings-btn" onClick={() => setSettingsOpen(true)} title="Settings">⚙</button>
+          <button type="button" className="btn-icon settings-btn" onClick={() => setSettingsOpen(true)} title="Settings"><IconSettings size={18}/></button>
           <ProfileMenu />
         </div>
       </header>

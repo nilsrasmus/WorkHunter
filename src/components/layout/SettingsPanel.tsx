@@ -5,6 +5,7 @@ import { useI18n } from "../../lib/i18n";
 import { useSession } from "../../context/SessionContext";
 import { ModelSelect } from "../ModelSelect";
 import type { AiProvider, AppLanguage, ProfileSettings } from "../../types";
+import { IconX } from '@tabler/icons-react'
 
 interface Props {
   open: boolean;
@@ -70,7 +71,7 @@ export function SettingsPanel({ open, onClose }: Props) {
       <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{t("settings.title")}</h2>
-          <button type="button" className="btn-icon" onClick={onClose}>×</button>
+          <button type="button" className="btn-icon" onClick={onClose}><IconX size={18}/></button>
         </div>
 
         <div className="modal-body settings-body">
