@@ -124,7 +124,7 @@ export function FilterPanel({
           <div className="taxonomy-checkboxes">
             {qfieldOptions.map((opt) => (
               <label key={opt.value} className="checkbox-label">
-                <span className="taxonomy-option-check">
+                <span className="taxonomy-option-check color--text-2">
                   <input
                     type="checkbox"
                     checked={(filters.qfields ?? []).includes(opt.value)}
@@ -216,7 +216,7 @@ export function FilterPanel({
           emptyHint={t("filter.municipality.hint")}
         />
         <label className="checkbox-label">
-          <span className="taxonomy-option-check">
+          <span className="taxonomy-option-check color--text-2">
             <input
               type="checkbox"
               checked={!!filters.remote}
@@ -226,7 +226,7 @@ export function FilterPanel({
           <span className="taxonomy-option-label">{t("filter.remote")}</span>
         </label>
         <label className="checkbox-label">
-          <span className="taxonomy-option-check">
+          <span className="taxonomy-option-check color--text-2">
             <input
               type="checkbox"
               checked={!!filters["unspecified-sweden-workplace"]}
@@ -238,7 +238,7 @@ export function FilterPanel({
           <span className="taxonomy-option-label">{t("filter.unspecifiedSweden")}</span>
         </label>
         <label className="checkbox-label">
-          <span className="taxonomy-option-check">
+          <span className="taxonomy-option-check color--text-2">
             <input
               type="checkbox"
               checked={!!filters.abroad}
@@ -303,7 +303,7 @@ export function FilterPanel({
 
       <Section title={t("filter.requirements")}>
         <label className="checkbox-label">
-          <span className="taxonomy-option-check">
+          <span className="taxonomy-option-check color--text-2">
             <input
               type="checkbox"
               checked={filters.experience === false}
@@ -315,7 +315,7 @@ export function FilterPanel({
           <span className="taxonomy-option-label">{t("filter.noExperience")}</span>
         </label>
         <label className="checkbox-label">
-          <span className="taxonomy-option-check">
+          <span className="taxonomy-option-check color--text-2">
             <input
               type="checkbox"
               checked={!!filters["driving-license-required"]}
@@ -330,7 +330,7 @@ export function FilterPanel({
 
       <Section title={t("filter.more")}>
         <label className="checkbox-label">
-          <span className="taxonomy-option-check">
+          <span className="taxonomy-option-check color--text-2">
             <input
               type="checkbox"
               checked={!!filters.open_for_all}
@@ -340,7 +340,7 @@ export function FilterPanel({
           <span className="taxonomy-option-label">{t("filter.openForAll")}</span>
         </label>
         <label className="checkbox-label">
-          <span className="taxonomy-option-check">
+          <span className="taxonomy-option-check color--text-2">
             <input
               type="checkbox"
               checked={!!filters.trainee}
@@ -350,7 +350,7 @@ export function FilterPanel({
           <span className="taxonomy-option-label">{t("filter.trainee")}</span>
         </label>
         <label className="checkbox-label">
-          <span className="taxonomy-option-check">
+          <span className="taxonomy-option-check color--text-2">
             <input
               type="checkbox"
               checked={!!filters.larling}

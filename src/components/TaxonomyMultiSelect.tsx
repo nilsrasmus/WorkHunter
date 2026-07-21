@@ -95,7 +95,7 @@ export function TaxonomyMultiSelect({
                   <button type="button" className={selectedSet.has(opt.id) ? "selected" : ""}
                     onClick={() => toggle(opt.id)}
                   >
-                    <span className="taxonomy-option-check">
+                    <span className="taxonomy-option-check color--text-2">
                       <input
                         type="checkbox"
                         readOnly
@@ -147,7 +147,7 @@ export function TaxonomyCheckboxGroup({
           const checked = selectedIds.includes(opt.id);
           return (
             <label key={opt.id} className="checkbox-label">
-              <span className="taxonomy-option-check">
+              <span className="taxonomy-option-check color--text-2">
                 <input
                   type="checkbox"
                   checked={checked}

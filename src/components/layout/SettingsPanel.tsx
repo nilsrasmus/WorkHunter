@@ -210,7 +210,7 @@ export function SettingsPanel({ open, onClose }: Props) {
           <section>
             <h3>{t("settings.testMode")}</h3>
             <label className="checkbox-label">
-              <span className="taxonomy-option-check">
+              <span className="taxonomy-option-check color--text-2">
                 <input type="checkbox" checked={form.test_mode} onChange={(e) => setForm({ ...form, test_mode: e.target.checked })} />
               </span>
               <span className="taxonomy-option-label">{t("settings.testModeLabel")}</span>

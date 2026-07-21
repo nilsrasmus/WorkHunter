@@ -115,7 +115,7 @@ export function ProceedModal({
             </select>
           </label>
           <label className={`proceed-tailor checkbox-label ${!resumeCanTailor ? "disabled" : ""}`}>
-            <span className="taxonomy-option-check">
+            <span className="taxonomy-option-check color--text-2">
               <input
                 type="checkbox"
                 checked={tailorResume && resumeCanTailor}
@@ -150,7 +150,7 @@ export function ProceedModal({
             </select>
           </label>
           <label className={`proceed-tailor checkbox-label ${!letterCanTailor ? "disabled" : ""}`}>
-            <span className="taxonomy-option-check">
+            <span className="taxonomy-option-check color--text-2">
               <input
                 type="checkbox"
                 checked={tailorLetter && letterCanTailor}
