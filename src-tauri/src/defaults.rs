@@ -58,5 +58,6 @@ pub fn default_settings() -> Vec<(&'static str, &'static str)> {
         ("email_body_template", DEFAULT_EMAIL_TEMPLATE),
         ("your_name", ""),
         ("applications_export_dir", ""),
+        ("theme", "light"),
     ]
 }

@@ -8,7 +8,8 @@
     "dev:clean": "node -e \"require('fs').rmSync('node_modules/.vite',{recursive:true,force:true})\" && vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev:clean": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/clean-dev.ps1"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",

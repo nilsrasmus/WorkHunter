@@ -33,13 +33,18 @@ export function ProfileMenu() {
 
   return (
     <div className="profile-menu">
-      <button type="button" className="profile-btn" onClick={() => setOpen(!open)}>
+      <button
+        type="button"
+        className="profile-btn"
+        onClick={() => setOpen(!open)}
+        title={profile.email}
+        aria-label={profile.email}
+      >
         {profile.avatar_url ? (
           <img src={profile.avatar_url} alt="" className="avatar" />
         ) : (
           <span className="avatar-placeholder">{profile.display_name[0]}</span>
         )}
-        <span className="profile-email">{profile.email}</span>
       </button>
       {open && (
         <>

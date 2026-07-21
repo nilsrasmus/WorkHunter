@@ -41,6 +41,8 @@ export type AiProvider = "gemini" | "anthropic";
 
 export type AppLanguage = "sv" | "en";
 
+export type AppTheme = "light" | "dark";
+
 export interface ProfileSettings {
   ai_provider: AiProvider;
   gemini_api_key: string;
@@ -55,6 +57,7 @@ export interface ProfileSettings {
   your_name: string;
   language: AppLanguage;
   applications_export_dir: string;
+  theme: AppTheme;
 }
 
 export type ApplicationMethod = "email" | "external_url" | "via_af" | "unknown";

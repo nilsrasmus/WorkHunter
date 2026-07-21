@@ -4,7 +4,7 @@ import { clearGeminiPromptCache } from "../../lib/ai";
 import { useI18n } from "../../lib/i18n";
 import { useSession } from "../../context/SessionContext";
 import { ModelSelect } from "../ModelSelect";
-import type { AiProvider, AppLanguage, ProfileSettings } from "../../types";
+import type { AiProvider, AppLanguage, AppTheme, ProfileSettings } from "../../types";
 import { IconX } from '@tabler/icons-react'
 
 interface Props {
@@ -25,6 +25,7 @@ export function SettingsPanel({ open, onClose }: Props) {
       setForm({
         ...settings,
         language: settings.language ?? "sv",
+        theme: settings.theme ?? "light",
         applications_export_dir: settings.applications_export_dir ?? "",
       });
     }
@@ -87,6 +88,18 @@ export function SettingsPanel({ open, onClose }: Props) {
               >
                 <option value="sv">{t("settings.language.sv")}</option>
                 <option value="en">{t("settings.language.en")}</option>
+              </select>
+            </label>
+            <label>
+              {t("settings.theme")}
+              <select
+                value={form.theme ?? "light"}
+                onChange={(e) =>
+                  setForm({ ...form, theme: e.target.value as AppTheme })
+                }
+              >
+                <option value="light">{t("settings.theme.light")}</option>
+                <option value="dark">{t("settings.theme.dark")}</option>
               </select>
             </label>
           </section>

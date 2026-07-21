@@ -1,9 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
+import { IconExternalLink } from "@tabler/icons-react";
 import { AdPanel } from "./AdPanel";
 import { api } from "../lib/api";
-import { applicationMethodLabelKey, detectApplicationMethod } from "../lib/applicationMethod";
+import {
+  applicationMethodBadgeClass,
+  applicationMethodLabelKey,
+  detectApplicationMethod,
+} from "../lib/applicationMethod";
 import { useI18n } from "../lib/i18n";
 import type { JobAdHit } from "../types";
+
+function hashHue(input: string): number {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * 31 + input.charCodeAt(i)) % 360;
+  }
+  return hash < 0 ? hash + 360 : hash;
+}
 
 interface Props {
   hit: JobAdHit;
@@ -26,6 +39,9 @@ export function JobCard({ hit, expanded, onToggle, onProceed, onReject, busy }: 
     "";
   const remote = hit.label?.includes("remote") || hit.label?.includes("distans");
   const applyMethod = detectApplicationMethod(hit as unknown as Record<string, unknown>);
+  const employerName = hit.employer?.name ?? hit.headline;
+  const avatarInitial = (employerName?.trim().charAt(0) || "?").toUpperCase();
+  const avatarStyle = { "--avatar-hue": hashHue(employerName ?? "") } as CSSProperties;
 
   useEffect(() => {
     if (!expanded || fullAd) return;
@@ -53,32 +69,35 @@ export function JobCard({ hit, expanded, onToggle, onProceed, onReject, busy }: 
 
   return (
     <div className={`job-card${expanded ? " job-card-expanded" : ""}`}>
-      <button type="button" className="job-card-toggle"
-        onClick={onToggle}
-        aria-expanded={expanded}
-      >
+      <div className="job-card-body">
         <div className="job-card-summary">
-          <h3>{hit.headline}</h3>
-          <p className="job-card-meta">
-            {hit.employer?.name && <span>{hit.employer.name}</span>}
-            {location && <span> · {location}</span>}
-            {hit.publication_date && (
-              <span> · {new Date(hit.publication_date).toLocaleDateString()}</span>
-            )}
-            {remote && <span className="badge">{t("job.remote")}</span>}
-            <span className="badge badge-method">{t(applicationMethodLabelKey(applyMethod) as never)}</span>
-          </p>
-          {!expanded && hit.description?.text && (
-            <p className="job-card-snippet">
-              {hit.description.text.slice(0, 200)}
-              {hit.description.text.length > 200 ? "…" : ""}
-            </p>
-          )}
-          <span className="job-card-expand-hint">
-            {expanded ? t("job.collapse") : t("job.expand")}
+          <span className="job-card-avatar" style={avatarStyle} aria-hidden="true">
+            {avatarInitial}
           </span>
+          <div className="job-card-heading">
+            <div className="job-card-title-row">
+              <h3>{hit.headline}</h3>
+              <span className={`badge ${applicationMethodBadgeClass(applyMethod)}`}>
+                {t(applicationMethodLabelKey(applyMethod) as never)}
+              </span>
+            </div>
+            <p className="job-card-meta">
+              {hit.employer?.name && <span>{hit.employer.name}</span>}
+              {location && <span> · {location}</span>}
+              {hit.publication_date && (
+                <span> · {new Date(hit.publication_date).toLocaleDateString()}</span>
+              )}
+              {remote && <span className="badge badge-remote">{t("job.remote")}</span>}
+            </p>
+          </div>
         </div>
-      </button>
+        {!expanded && hit.description?.text && (
+          <p className="job-card-snippet">
+            {hit.description.text.slice(0, 200)}
+            {hit.description.text.length > 200 ? "…" : ""}
+          </p>
+        )}
+      </div>
 
       {expanded && (
         <div className="job-card-details">
@@ -90,18 +109,24 @@ export function JobCard({ hit, expanded, onToggle, onProceed, onReject, busy }: 
         </div>
       )}
 
-      <div className="job-card-actions" role="group">
-        <button type="button" className="btn btn-primary" onClick={(e) => { e.stopPropagation(); onProceed(); }}
-          disabled={busy}
-        >
-          {t("job.proceed")}
+      <div className="job-card-footer">
+        <button type="button" className="job-card-expand-toggle" onClick={onToggle} aria-expanded={expanded}>
+          <IconExternalLink size={14} />
+          {expanded ? t("job.collapse") : t("job.expand")}
         </button>
-        <button type="button" className="btn btn-secondary"
-          onClick={(e) => { e.stopPropagation(); onReject(); }}
-          disabled={busy}
-        >
-          {t("job.reject")}
-        </button>
+        <div className="job-card-actions" role="group">
+          <button type="button" className="btn btn-secondary"
+            onClick={onReject}
+            disabled={busy}
+          >
+            {t("job.reject")}
+          </button>
+          <button type="button" className="btn btn-primary" onClick={onProceed}
+            disabled={busy}
+          >
+            {t("job.proceed")}
+          </button>
+        </div>
       </div>
     </div>
   );

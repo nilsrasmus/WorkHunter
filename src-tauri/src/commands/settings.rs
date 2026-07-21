@@ -41,6 +41,7 @@ pub struct ProfileSettings {
     pub your_name: String,
     pub language: String,
     pub applications_export_dir: String,
+    pub theme: String,
 }
 
 fn map_settings(map: HashMap<String, String>) -> ProfileSettings {
@@ -85,6 +86,10 @@ fn map_settings(map: HashMap<String, String>) -> ProfileSettings {
             .get("applications_export_dir")
             .cloned()
             .unwrap_or_else(default_applications_export_dir),
+        theme: map
+            .get("theme")
+            .cloned()
+            .unwrap_or_else(|| "light".into()),
     }
 }
 
@@ -135,6 +140,7 @@ pub fn save_settings(
         ("your_name", settings.your_name),
         ("language", settings.language),
         ("applications_export_dir", settings.applications_export_dir),
+        ("theme", settings.theme),
     ];
     for (key, value) in pairs {
         conn.execute(

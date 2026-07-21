@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IconChevronRight } from "@tabler/icons-react";
 import { TaxonomyCheckboxGroup, TaxonomyMultiSelect } from "./TaxonomyMultiSelect";
 import { useMunicipalitiesForRegions, useTaxonomyOptions } from "../hooks/useTaxonomyOptions";
 import { useI18n } from "../lib/i18n";
@@ -31,7 +32,10 @@ function Section({
       open={open}
       onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
     >
-      <summary>{title}</summary>
+      <summary>
+        <IconChevronRight size={16} className="filter-section-chevron" aria-hidden="true" />
+        {title}
+      </summary>
       <div className="filter-section-body">{children}</div>
     </details>
   );

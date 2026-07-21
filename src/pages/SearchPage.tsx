@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { IconChevronDown } from "@tabler/icons-react";
 import { FilterPanel } from "../components/FilterPanel";
 import { JobCard } from "../components/JobCard";
 import { ProceedModal } from "../components/ProceedModal";
@@ -122,20 +123,27 @@ export function SearchPage() {
   return (
     <div className="page search-page">
       <div className="search-header">
-        <label>
-          {t("search.role")}
-          <select value={roleId ?? ""} onChange={(e) => setRoleId(Number(e.target.value))}>
+        <div className="role-select">
+          <label className="sr-only" htmlFor="search-role-select">{t("search.role")}</label>
+          <select
+            id="search-role-select"
+            value={roleId ?? ""}
+            onChange={(e) => setRoleId(Number(e.target.value))}
+          >
             {roles.map((r) => (
               <option key={r.id} value={r.id}>{r.name}</option>
             ))}
           </select>
-        </label>
+          <IconChevronDown size={18} className="role-select-chevron" aria-hidden="true" />
+        </div>
         {hasSearched && total > 0 && (
-          <span className="result-count">
-            {hits.length} {t("search.results.new")}
-            {hiddenCount > 0 && ` · ${hiddenCount} ${t("search.results.handled")}`}
-            {` · ${total} ${t("search.results.total")}`}
-          </span>
+          <p className="result-count">
+            <span className="result-count-new">
+              {hits.length} {t("search.results.new")}
+            </span>
+            {hiddenCount > 0 && <span> · {hiddenCount} {t("search.results.handled")}</span>}
+            <span> · {total} {t("search.results.total")}</span>
+          </p>
         )}
       </div>
 

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { SessionProvider, useSession } from "./context/SessionContext";
 import { resolveLanguage } from "./lib/i18n";
+import { applyThemeAttribute, resolveTheme } from "./lib/theme";
 import { TopBar } from "./components/layout/TopBar";
 import { SetupWizard } from "./pages/SetupWizard";
 import { SearchPage } from "./pages/SearchPage";
@@ -21,6 +22,10 @@ function AppRoutes() {
   useEffect(() => {
     document.documentElement.lang = resolveLanguage(settings?.language);
   }, [settings?.language]);
+
+  useEffect(() => {
+    applyThemeAttribute(resolveTheme(settings?.theme));
+  }, [settings?.theme]);
 
   if (loading) {
     return <div className="loading-page">Loading…</div>;

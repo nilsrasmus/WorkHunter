@@ -62,3 +62,14 @@ export function applicationMethodLabelKey(method: ApplicationMethod): string {
       return "apply.method.unknown";
   }
 }
+
+export function applicationMethodBadgeClass(method: ApplicationMethod): string {
+  switch (method) {
+    case "email":
+      return "badge-email";
+    case "external_url":
+      return "badge-web";
+    default:
+      return "";
+  }
+}
