@@ -22,7 +22,14 @@ export interface RoleWithDocs {
   letter: string;
 }
 
-export type DocumentFormat = "markdown" | "docx" | "pdf";
+export type DocumentFormat = "markdown" | "html" | "docx" | "pdf";
+
+export interface CustomFont {
+  id: string;
+  family: string;
+  file_name: string;
+  format: string;
+}
 
 export interface RoleDocumentVersion {
   id: number;
@@ -31,6 +38,7 @@ export interface RoleDocumentVersion {
   name: string;
   format: DocumentFormat;
   content_md: string;
+  content_html: string;
   file_name: string | null;
   is_default: boolean;
   created_at: string;
@@ -153,6 +161,8 @@ export interface Application {
   ad_decision_id: number;
   tailored_resume_md: string;
   tailored_letter_md: string;
+  tailored_resume_html: string;
+  tailored_letter_html: string;
   email_subject: string | null;
   email_body: string | null;
   email_to: string | null;

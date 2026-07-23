@@ -13,6 +13,8 @@ export function EmailPage() {
   const [adJson, setAdJson] = useState<Record<string, unknown>>({});
   const [tailoredResumeMd, setTailoredResumeMd] = useState("");
   const [tailoredLetterMd, setTailoredLetterMd] = useState("");
+  const [tailoredResumeHtml, setTailoredResumeHtml] = useState("");
+  const [tailoredLetterHtml, setTailoredLetterHtml] = useState("");
   const [resumeAttachment, setResumeAttachment] = useState("resume.pdf");
   const [letterAttachment, setLetterAttachment] = useState("personal_letter.pdf");
   const [to, setTo] = useState("");
@@ -36,15 +38,17 @@ export function EmailPage() {
         setAdJson(ad);
         setTailoredResumeMd(data.application.tailored_resume_md);
         setTailoredLetterMd(data.application.tailored_letter_md);
-        const resumeFmt = data.application.resume_format ?? "markdown";
-        const letterFmt = data.application.letter_format ?? "markdown";
+        setTailoredResumeHtml(data.application.tailored_resume_html);
+        setTailoredLetterHtml(data.application.tailored_letter_html);
+        const resumeFmt = data.application.resume_format ?? "html";
+        const letterFmt = data.application.letter_format ?? "html";
         setResumeAttachment(
           data.application.resume_file_name
-            ?? (resumeFmt === "markdown" ? "resume.pdf" : "resume"),
+            ?? ((resumeFmt === "markdown" || resumeFmt === "html") ? "resume.pdf" : "resume"),
         );
         setLetterAttachment(
           data.application.letter_file_name
-            ?? (letterFmt === "markdown" ? "personal_letter.pdf" : "personal_letter"),
+            ?? ((letterFmt === "markdown" || letterFmt === "html") ? "personal_letter.pdf" : "personal_letter"),
         );
 
         const employer = data.employer_name ?? "";
@@ -94,6 +98,8 @@ export function EmailPage() {
         bcc,
         tailoredResumeMd,
         tailoredLetterMd,
+        tailoredResumeHtml,
+        tailoredLetterHtml,
       );
       const result = await api.createGmailDraft({
         profile_id: profile.id,

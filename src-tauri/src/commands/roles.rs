@@ -36,6 +36,7 @@ pub struct RoleDocumentVersion {
     pub name: String,
     pub format: String,
     pub content_md: String,
+    pub content_html: String,
     pub file_name: Option<String>,
     pub is_default: bool,
     pub created_at: String,
@@ -50,7 +51,7 @@ pub struct RoleWithDocs {
 }
 
 const VERSION_SELECT: &str =
-    "SELECT id, role_id, doc_type, name, format, content_md, file_name, is_default, created_at, updated_at";
+    "SELECT id, role_id, doc_type, name, format, content_md, content_html, file_name, is_default, created_at, updated_at";
 
 fn row_to_version(row: &rusqlite::Row) -> rusqlite::Result<RoleDocumentVersion> {
     Ok(RoleDocumentVersion {
@@ -60,10 +61,11 @@ fn row_to_version(row: &rusqlite::Row) -> rusqlite::Result<RoleDocumentVersion> 
         name: row.get(3)?,
         format: row.get(4)?,
         content_md: row.get(5)?,
-        file_name: row.get(6)?,
-        is_default: row.get::<_, i64>(7)? != 0,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        content_html: row.get(6)?,
+        file_name: row.get(7)?,
+        is_default: row.get::<_, i64>(8)? != 0,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 
@@ -81,15 +83,23 @@ fn default_version_content(
     role_id: i64,
     doc_type: &str,
 ) -> Result<String, String> {
-    let content: Option<String> = conn
+    let row: Option<(String, String, String)> = conn
         .query_row(
-            "SELECT content_md FROM role_document_versions WHERE role_id = ?1 AND doc_type = ?2 AND is_default = 1",
+            "SELECT format, content_md, content_html FROM role_document_versions WHERE role_id = ?1 AND doc_type = ?2 AND is_default = 1",
             params![role_id, doc_type],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    Ok(content.unwrap_or_default())
+    Ok(row
+        .map(|(format, md, html)| {
+            if format == "html" {
+                html
+            } else {
+                md
+            }
+        })
+        .unwrap_or_default())
 }
 
 fn clear_default_for_type(
@@ -124,8 +134,8 @@ fn create_default_versions(conn: &rusqlite::Connection, role_id: i64) -> Result<
     let now = db::now_iso();
     for doc_type in ["resume", "letter"] {
         conn.execute(
-            "INSERT INTO role_document_versions (role_id, doc_type, name, format, content_md, is_default, created_at, updated_at)
-             VALUES (?1, ?2, 'Default', 'markdown', '', 1, ?3, ?3)",
+            "INSERT INTO role_document_versions (role_id, doc_type, name, format, content_md, content_html, is_default, created_at, updated_at)
+             VALUES (?1, ?2, 'Default', 'html', '', '', 1, ?3, ?3)",
             params![role_id, doc_type, now],
         )
         .map_err(|e| e.to_string())?;
@@ -219,6 +229,9 @@ pub fn get_role_document_file_base64(
     if version.format == "markdown" {
         return Err("Document version is markdown, not a file".into());
     }
+    if version.format == "html" {
+        return Err("Document version is HTML, not a file".into());
+    }
     let bytes = blob.ok_or("Missing file data for this document version")?;
     Ok(DocumentFilePayload {
         format: version.format,
@@ -261,6 +274,87 @@ pub fn create_role_document_markdown(
 }
 
 #[tauri::command]
+pub fn create_role_document_html(
+    state: State<DbState>,
+    role_id: i64,
+    doc_type: String,
+    name: String,
+    content_html: String,
+    set_default: bool,
+) -> Result<RoleDocumentVersion, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let now = db::now_iso();
+    if set_default {
+        clear_default_for_type(&conn, role_id, &doc_type).map_err(|e| e.to_string())?;
+    }
+    let is_default = if set_default { 1 } else { 0 };
+    conn.execute(
+        "INSERT INTO role_document_versions (role_id, doc_type, name, format, content_md, content_html, is_default, created_at, updated_at)
+         VALUES (?1, ?2, ?3, 'html', '', ?4, ?5, ?6, ?6)",
+        params![role_id, doc_type, name, content_html, is_default, now],
+    )
+    .map_err(|e| e.to_string())?;
+    let id = conn.last_insert_rowid();
+    conn.execute(
+        "UPDATE roles SET updated_at = ?1 WHERE id = ?2",
+        params![now, role_id],
+    )
+    .map_err(|e| e.to_string())?;
+    get_version_by_id(&conn, id)
+}
+
+#[tauri::command]
+pub fn update_role_document_html(
+    state: State<DbState>,
+    version_id: i64,
+    content_html: String,
+) -> Result<RoleDocumentVersion, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let version = get_version_by_id(&conn, version_id)?;
+    if version.format != "html" && version.format != "markdown" {
+        return Err("Only HTML or markdown versions can be edited as rich documents".into());
+    }
+    let now = db::now_iso();
+    // Editing always persists as HTML (migrates legacy markdown in place).
+    conn.execute(
+        "UPDATE role_document_versions
+         SET format = 'html', content_html = ?1, content_md = '', file_blob = NULL, file_name = NULL, updated_at = ?2
+         WHERE id = ?3",
+        params![content_html, now, version_id],
+    )
+    .map_err(|e| e.to_string())?;
+    get_version_by_id(&conn, version_id)
+}
+
+/// Convert any version (including legacy pdf/docx) into editable HTML and drop the binary blob.
+#[tauri::command]
+pub fn convert_role_document_to_html(
+    state: State<DbState>,
+    version_id: i64,
+    content_html: String,
+) -> Result<RoleDocumentVersion, String> {
+    if content_html.trim().is_empty() {
+        return Err("Converted HTML is empty".into());
+    }
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let _version = get_version_by_id(&conn, version_id)?;
+    let now = db::now_iso();
+    conn.execute(
+        "UPDATE role_document_versions
+         SET format = 'html', content_html = ?1, content_md = '', file_blob = NULL, file_name = NULL, updated_at = ?2
+         WHERE id = ?3",
+        params![content_html, now, version_id],
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute(
+        "UPDATE roles SET updated_at = ?1 WHERE id = (SELECT role_id FROM role_document_versions WHERE id = ?2)",
+        params![now, version_id],
+    )
+    .map_err(|e| e.to_string())?;
+    get_version_by_id(&conn, version_id)
+}
+
+#[tauri::command]
 pub fn update_role_document_markdown(
     state: State<DbState>,
     version_id: i64,
@@ -289,40 +383,21 @@ pub fn update_role_document_markdown(
     get_version_by_id(&conn, version_id)
 }
 
+/// Deprecated: PDF/DOCX must be converted to HTML on the client and saved via create_role_document_html.
 #[tauri::command]
 pub fn upload_role_document_file(
-    state: State<DbState>,
-    role_id: i64,
-    doc_type: String,
-    name: String,
-    format: String,
-    file_name: String,
-    file_base64: String,
+    _state: State<DbState>,
+    _role_id: i64,
+    _doc_type: String,
+    _name: String,
+    _format: String,
+    _file_name: String,
+    _file_base64: String,
 ) -> Result<RoleDocumentVersion, String> {
-    if format != "docx" && format != "pdf" {
-        return Err("File uploads must be docx or pdf format".into());
-    }
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(file_base64.trim())
-        .map_err(|e| format!("Invalid file data: {e}"))?;
-    if bytes.is_empty() {
-        return Err("Uploaded file is empty".into());
-    }
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let now = db::now_iso();
-    conn.execute(
-        "INSERT INTO role_document_versions (role_id, doc_type, name, format, content_md, file_blob, file_name, is_default, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, '', ?5, ?6, 0, ?7, ?7)",
-        params![role_id, doc_type, name, format, bytes, file_name, now],
+    Err(
+        "Binary document upload is no longer supported. Convert PDF/DOCX to HTML and save as a rich document."
+            .into(),
     )
-    .map_err(|e| e.to_string())?;
-    let id = conn.last_insert_rowid();
-    conn.execute(
-        "UPDATE roles SET updated_at = ?1 WHERE id = ?2",
-        params![now, role_id],
-    )
-    .map_err(|e| e.to_string())?;
-    get_version_by_id(&conn, id)
 }
 
 #[tauri::command]

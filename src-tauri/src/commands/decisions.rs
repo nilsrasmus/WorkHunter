@@ -226,20 +226,7 @@ pub fn proceed_ad(
             .flatten()
     });
 
-    let (resume_format, letter_format) = {
-        let rf = resume_vid
-            .and_then(|id| crate::commands::roles::get_version_by_id(&conn, id).ok())
-            .map(|v| v.format)
-            .unwrap_or_else(|| "markdown".into());
-        let lf = letter_vid
-            .and_then(|id| crate::commands::roles::get_version_by_id(&conn, id).ok())
-            .map(|v| v.format)
-            .unwrap_or_else(|| "markdown".into());
-        (rf, lf)
-    };
-
-    let tailor_resume = tailor_resume && resume_format == "markdown";
-    let tailor_letter = tailor_letter && letter_format == "markdown";
+    // Binary pdf/docx versions are converted to HTML on the Review page before tailoring.
     let application_method = detect_application_method(&ad);
 
     let job_ad_id = upsert_job_ad(&conn, profile_id, &ad).map_err(|e| e.to_string())?;

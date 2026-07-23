@@ -1860,6 +1860,20 @@ a:hover {
   display: block;
 }
 
+.pdf-preview-frame,
+.review-pdf-preview iframe {
+  width: 100%;
+  height: var(--doc-preview-height);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--preview-bg);
+  display: block;
+}
+
+.review-pdf-preview {
+  margin-top: 0.75rem;
+}
+
 .binary-doc-preview__docx {
   max-height: min(70vh, 640px);
   overflow: auto;

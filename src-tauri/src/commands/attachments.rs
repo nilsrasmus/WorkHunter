@@ -1,3 +1,4 @@
+use crate::commands::html_pdf::html_to_pdf_bytes;
 use crate::commands::pdf::markdown_to_pdf_bytes;
 use base64::Engine;
 
@@ -13,43 +14,55 @@ impl ResolvedAttachment {
     }
 }
 
+/// Resolve an application attachment from editable content only.
+/// `font_css` is optional @font-face CSS for custom fonts embedded in HTML→PDF.
 pub fn resolve_attachment(
     format: &str,
     file_name: &str,
     md_content: &str,
-    blob: Option<Vec<u8>>,
+    html_content: &str,
+    _blob: Option<Vec<u8>>,
+    font_css: &str,
 ) -> Result<ResolvedAttachment, String> {
     match format {
-        "pdf" => {
-            let bytes = blob.ok_or("Missing PDF file data")?;
-            Ok(ResolvedAttachment {
-                mime_type: "application/pdf".into(),
-                file_name: file_name.to_string(),
-                bytes,
-            })
-        }
-        "docx" => {
-            let bytes = blob.ok_or("Missing DOCX file data")?;
-            Ok(ResolvedAttachment {
-                mime_type:
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        .into(),
-                file_name: file_name.to_string(),
-                bytes,
-            })
-        }
-        _ => {
-            let pdf_bytes = markdown_to_pdf_bytes(md_content)?;
-            let pdf_name = if file_name.ends_with(".pdf") {
-                file_name.to_string()
+        "html" => {
+            let source = if html_content.trim().is_empty() {
+                if md_content.trim().is_empty() {
+                    return Err("Missing HTML content for attachment".into());
+                }
+                return resolve_markdown_pdf(file_name, md_content);
             } else {
-                format!("{}.pdf", file_name.trim_end_matches(".md"))
+                html_content
             };
+            let pdf_bytes = html_to_pdf_bytes(source, font_css)?;
             Ok(ResolvedAttachment {
                 mime_type: "application/pdf".into(),
-                file_name: pdf_name,
+                file_name: pdf_file_name(file_name, ".html"),
                 bytes: pdf_bytes,
             })
         }
+        "markdown" => resolve_markdown_pdf(file_name, md_content),
+        "pdf" | "docx" => Err(
+            "Binary PDF/DOCX attachments are no longer supported. Convert the document to editable HTML first."
+                .into(),
+        ),
+        other => Err(format!("Unsupported document format for attachment: {other}")),
+    }
+}
+
+fn resolve_markdown_pdf(file_name: &str, md_content: &str) -> Result<ResolvedAttachment, String> {
+    let pdf_bytes = markdown_to_pdf_bytes(md_content)?;
+    Ok(ResolvedAttachment {
+        mime_type: "application/pdf".into(),
+        file_name: pdf_file_name(file_name, ".md"),
+        bytes: pdf_bytes,
+    })
+}
+
+fn pdf_file_name(file_name: &str, trim_ext: &str) -> String {
+    if file_name.ends_with(".pdf") {
+        file_name.to_string()
+    } else {
+        format!("{}.pdf", file_name.trim_end_matches(trim_ext))
     }
 }

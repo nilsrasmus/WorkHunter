@@ -23,6 +23,8 @@ export function parseApplicationWithMeta(
       ad_decision_id: data.ad_decision_id!,
       tailored_resume_md: data.tailored_resume_md ?? "",
       tailored_letter_md: data.tailored_letter_md ?? "",
+      tailored_resume_html: data.tailored_resume_html ?? "",
+      tailored_letter_html: data.tailored_letter_html ?? "",
       email_subject: data.email_subject ?? null,
       email_body: data.email_body ?? null,
       email_to: data.email_to ?? null,

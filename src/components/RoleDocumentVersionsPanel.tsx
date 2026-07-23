@@ -1,10 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { readFile, readTextFile } from "@tauri-apps/plugin-fs";
-import { MarkdownEditor } from "./MarkdownEditor";
-import { BinaryDocumentPreview } from "./BinaryDocumentPreview";
+import { RichDocumentEditor } from "./RichDocumentEditor";
 import { api } from "../lib/api";
-import { bytesToBase64, canTailorFormat, versionDisplayName } from "../lib/files";
+import { canTailorFormat, isBinaryLegacyFormat, isEditableTextFormat, versionDisplayName } from "../lib/files";
+import { documentHtmlFromVersion, markdownToHtml } from "../lib/documentUtils";
+import {
+  base64ToBytes,
+  bytesToHtml,
+  detectImportKind,
+} from "../lib/importDocument";
+import { templatesForDocType, type DocumentTemplateId, getTemplate } from "../lib/documentTemplates";
 import { useI18n } from "../lib/i18n";
 import type { MessageKey } from "../lib/i18n";
 import type { RoleDocumentVersion } from "../types";
@@ -27,11 +33,15 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
+  const [converting, setConverting] = useState(false);
   const [newVersionName, setNewVersionName] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState<DocumentTemplateId>("modern-resume");
   const [error, setError] = useState("");
+  const convertingRef = useRef<number | null>(null);
 
   const tabVersions = versions.filter((v) => v.doc_type === tab);
   const selected = tabVersions.find((v) => v.id === selectedId) ?? null;
+  const tabTemplates = templatesForDocType(tab);
 
   const loadVersions = useCallback(async () => {
     const list = await api.listRoleDocumentVersions(roleId);
@@ -48,29 +58,64 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
   }, [loadVersions]);
 
   useEffect(() => {
+    setSelectedTemplate(tab === "resume" ? "modern-resume" : "clean-letter");
+  }, [tab]);
+
+  useEffect(() => {
     if (!selectedId) {
       setContent("");
       return;
     }
     const v = versions.find((x) => x.id === selectedId && x.doc_type === tab);
-    if (v?.format === "markdown") {
-      setContent(v.content_md);
-    } else {
-      setContent("");
+    if (!v) {
+      // Versions list may not include the newly created id yet — don't wipe editor content.
+      return;
     }
-  }, [selectedId, tab]);
 
-  const saveMarkdown = async () => {
-    if (!selected || selected.format !== "markdown") return;
+    if (isEditableTextFormat(v.format)) {
+      const html = documentHtmlFromVersion(v);
+      if (html.trim()) {
+        setContent(html);
+      }
+      return;
+    }
+
+    if (!isBinaryLegacyFormat(v.format)) {
+      setContent("");
+      return;
+    }
+
+    if (convertingRef.current === v.id) return;
+    convertingRef.current = v.id;
+    setConverting(true);
+    setError("");
+    (async () => {
+      try {
+        const payload = await api.getRoleDocumentFileBase64(v.id);
+        const kind = detectImportKind(payload.file_name ?? `file.${v.format}`)
+          ?? (v.format === "pdf" ? "pdf" : "docx");
+        const html = await bytesToHtml(base64ToBytes(payload.data_base64), kind);
+        const updated = await api.convertRoleDocumentToHtml(v.id, html);
+        setVersions((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+        setContent(html);
+        onChanged?.();
+      } catch (e) {
+        setError(String(e));
+        setContent("");
+      } finally {
+        convertingRef.current = null;
+        setConverting(false);
+      }
+    })();
+  }, [selectedId, tab, versions, onChanged]);
+
+  const saveDocument = async () => {
+    if (!selected || !isEditableTextFormat(selected.format)) return;
     setSaving(true);
     setError("");
     try {
-      await api.updateRoleDocumentMarkdown(selected.id, content);
-      setVersions((prev) =>
-        prev.map((v) =>
-          v.id === selected.id ? { ...v, content_md: content } : v,
-        ),
-      );
+      const updated = await api.updateRoleDocumentHtml(selected.id, content);
+      setVersions((prev) => prev.map((v) => (v.id === selected.id ? updated : v)));
       onChanged?.();
     } catch (e) {
       setError(String(e));
@@ -79,15 +124,17 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
     }
   };
 
-  const createMarkdownVersion = async () => {
+  const createHtmlVersion = async (templateId?: DocumentTemplateId) => {
     const name = newVersionName.trim() || `Version ${tabVersions.length + 1}`;
+    const template = getTemplate(templateId ?? selectedTemplate);
+    const html = template?.html ?? "<p></p>";
     setSaving(true);
     setError("");
     try {
-      const v = await api.createRoleDocumentMarkdown(roleId, tab, name, "", false);
+      const v = await api.createRoleDocumentHtml(roleId, tab, name, html, false);
       setNewVersionName("");
       setSelectedId(v.id);
-      setContent("");
+      setContent(html);
       await loadVersions();
       onChanged?.();
     } catch (e) {
@@ -107,30 +154,35 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
     if (!file || typeof file !== "string") return;
 
     const lower = file.toLowerCase();
+    const kind = detectImportKind(lower);
+    if (!kind) {
+      setError("Unsupported file type");
+      return;
+    }
+
     setSaving(true);
     setError("");
     try {
-      if (lower.endsWith(".md") || lower.endsWith(".txt")) {
-        const text = await readTextFile(file);
-        const baseName = file.split(/[/\\]/).pop()?.replace(/\.(md|txt)$/i, "") ?? "Imported";
-        const v = await api.createRoleDocumentMarkdown(roleId, tab, baseName, text, false);
-        setSelectedId(v.id);
-        setContent(text);
+      const baseName =
+        file.split(/[/\\]/).pop()?.replace(/\.(pdf|docx|md|txt)$/i, "") ?? "Imported";
+      let html: string;
+      if (kind === "markdown" || kind === "txt") {
+        html = markdownToHtml(await readTextFile(file));
       } else {
-        const format = lower.endsWith(".pdf") ? "pdf" as const : "docx" as const;
         const bytes = await readFile(file);
-        const fileName = file.split(/[/\\]/).pop() ?? `upload.${format}`;
-        const name = fileName.replace(/\.(pdf|docx)$/i, "");
-        const v = await api.uploadRoleDocumentFile(
-          roleId,
-          tab,
-          name,
-          format,
-          fileName,
-          bytesToBase64(bytes),
-        );
-        setSelectedId(v.id);
+        html = await bytesToHtml(Uint8Array.from(bytes), kind);
       }
+      if (!html.replace(/<[^>]+>/g, "").trim()) {
+        throw new Error("Conversion produced empty content");
+      }
+      const v = await api.createRoleDocumentHtml(roleId, tab, baseName, html, false);
+      const savedHtml = v.content_html?.trim() ? v.content_html : html;
+      setVersions((prev) => {
+        const without = prev.filter((row) => row.id !== v.id);
+        return [...without, { ...v, content_html: savedHtml, format: "html" }];
+      });
+      setSelectedId(v.id);
+      setContent(savedHtml);
       await loadVersions();
       onChanged?.();
     } catch (e) {
@@ -190,6 +242,9 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
     }
   };
 
+  const busy = saving || converting;
+  const showEditor = selected && (isEditableTextFormat(selected.format) || converting);
+
   return (
     <div className="role-document-versions">
       <div className="doc-editor-toolbar">
@@ -213,13 +268,23 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
           <input
             value={newVersionName}
             onChange={(e) => setNewVersionName(e.target.value)}
-            placeholder={t("roles.newMarkdownPlaceholder")}
+            placeholder={t("roles.newDocumentPlaceholder")}
           />
-          <button type="button" className="btn btn-secondary" onClick={createMarkdownVersion} disabled={saving}>
-            {t("roles.newMarkdown")}
+          <select
+            value={selectedTemplate}
+            onChange={(e) => setSelectedTemplate(e.target.value as DocumentTemplateId)}
+          >
+            {tabTemplates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {t(template.labelKey as MessageKey)}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="btn btn-secondary" onClick={() => createHtmlVersion()} disabled={busy}>
+            {t("roles.newDocument")}
           </button>
-          <button type="button" className="btn btn-secondary" onClick={uploadFile} disabled={saving}>
-            {t("roles.uploadFile")}
+          <button type="button" className="btn btn-secondary" onClick={uploadFile} disabled={busy}>
+            {saving ? t("roles.converting") : t("roles.uploadFile")}
           </button>
         </div>
       </article>
@@ -240,44 +305,47 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
             ))}
           </select>
           {selected && !selected.is_default && (
-            <button type="button" className="btn btn-secondary" onClick={setDefault} disabled={saving}>
+            <button type="button" className="btn btn-secondary" onClick={setDefault} disabled={busy}>
               {t("roles.setDefault")}
             </button>
           )}
-          <button type="button" className="btn btn-secondary" onClick={renameVersion} disabled={!selected || saving}>
+          <button type="button" className="btn btn-secondary" onClick={renameVersion} disabled={!selected || busy}>
             {t("roles.rename")}
           </button>
           {tabVersions.length > 1 && (
-            <button type="button" className="btn btn-danger" onClick={deleteVersion} disabled={!selected || saving}>
+            <button type="button" className="btn btn-danger" onClick={deleteVersion} disabled={!selected || busy}>
               {t("common.delete")}
             </button>
           )}
         </div>
 
         <div className="ui-section-document">
-          {selected?.format === "markdown" ? (
+          {showEditor ? (
             <>
               <p className="doc-editor-hint">
-                {t("roles.editing")} <strong>{selected.name}</strong> ({formatLabel(selected.format)})
-                {selected.is_default && ` ${t("roles.defaultVersion")}`}
-                {!canTailorFormat(selected.format) && ` ${t("roles.cannotTailor")}`}
+                {converting
+                  ? t("roles.converting")
+                  : (
+                    <>
+                      {t("roles.editing")} <strong>{selected!.name}</strong> ({formatLabel(selected!.format === "markdown" ? "html" : selected!.format)})
+                      {selected!.is_default && ` ${t("roles.defaultVersion")}`}
+                      {!canTailorFormat(selected!.format) && !isBinaryLegacyFormat(selected!.format) && ` ${t("roles.cannotTailor")}`}
+                    </>
+                  )}
               </p>
-              <div className="doc-editor-workspace">
-                <MarkdownEditor value={content} onChange={setContent} />
-              </div>
-              <div className="version-save-row" role="group">
-                <button type="button" className="btn btn-primary" onClick={saveMarkdown} disabled={saving}>
-                  {saving ? t("common.saving") : t("roles.saveVersion")}
-                </button>
-              </div>
+              {!converting && (
+                <>
+                  <div className="doc-editor-workspace">
+                    <RichDocumentEditor value={content} onChange={setContent} />
+                  </div>
+                  <div className="version-save-row" role="group">
+                    <button type="button" className="btn btn-primary" onClick={saveDocument} disabled={busy}>
+                      {saving ? t("common.saving") : t("roles.saveVersion")}
+                    </button>
+                  </div>
+                </>
+              )}
             </>
-          ) : selected ? (
-            <div className="binary-doc-preview">
-              <h3>{selected.name}</h3>
-              {selected.is_default && <p className="hint">{t("roles.defaultForRole")}</p>}
-              <p className="hint">{t("roles.binaryHint")}</p>
-              <BinaryDocumentPreview source={{ kind: "version", versionId: selected.id }} />
-            </div>
           ) : (
             <p className="empty-state">{t("roles.noVersions")}</p>
           )}

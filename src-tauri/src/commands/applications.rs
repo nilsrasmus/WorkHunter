@@ -1,9 +1,7 @@
 use crate::commands::attachments::resolve_attachment;
 use crate::commands::roles::DocumentFilePayload;
-use crate::commands::roles::get_version_with_blob;
 use crate::commands::settings::get_export_dir_for_profile;
 use crate::db::{self, DbState};
-use base64::Engine;
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -17,6 +15,8 @@ pub struct Application {
     pub ad_decision_id: i64,
     pub tailored_resume_md: String,
     pub tailored_letter_md: String,
+    pub tailored_resume_html: String,
+    pub tailored_letter_html: String,
     pub email_subject: Option<String>,
     pub email_body: Option<String>,
     pub email_to: Option<String>,
@@ -53,26 +53,29 @@ fn row_to_application(row: &rusqlite::Row) -> rusqlite::Result<Application> {
         ad_decision_id: row.get(2)?,
         tailored_resume_md: row.get(3)?,
         tailored_letter_md: row.get(4)?,
-        email_subject: row.get(5)?,
-        email_body: row.get(6)?,
-        email_to: row.get(7)?,
-        email_cc: row.get(8)?,
-        email_bcc: row.get(9)?,
-        gmail_draft_id: row.get(10)?,
-        approved_at: row.get(11)?,
-        sent_at: row.get(12)?,
-        created_at: row.get(13)?,
-        resume_format: row.get(14)?,
-        letter_format: row.get(15)?,
-        resume_file_name: row.get(16)?,
-        letter_file_name: row.get(17)?,
-        application_method: row.get(18).ok(),
-        export_path: row.get(19).ok(),
-        apply_notes: row.get(20).ok(),
+        tailored_resume_html: row.get(5)?,
+        tailored_letter_html: row.get(6)?,
+        email_subject: row.get(7)?,
+        email_body: row.get(8)?,
+        email_to: row.get(9)?,
+        email_cc: row.get(10)?,
+        email_bcc: row.get(11)?,
+        gmail_draft_id: row.get(12)?,
+        approved_at: row.get(13)?,
+        sent_at: row.get(14)?,
+        created_at: row.get(15)?,
+        resume_format: row.get(16)?,
+        letter_format: row.get(17)?,
+        resume_file_name: row.get(18)?,
+        letter_file_name: row.get(19)?,
+        application_method: row.get(20).ok(),
+        export_path: row.get(21).ok(),
+        apply_notes: row.get(22).ok(),
     })
 }
 
 const APP_SELECT: &str = "SELECT id, profile_id, ad_decision_id, tailored_resume_md, tailored_letter_md,
+    tailored_resume_html, tailored_letter_html,
     email_subject, email_body, email_to, email_cc, email_bcc, gmail_draft_id,
     approved_at, sent_at, created_at, resume_format, letter_format, resume_file_name, letter_file_name,
     application_method, export_path, apply_notes";
@@ -83,6 +86,8 @@ pub struct SaveApplicationRequest {
     pub ad_decision_id: i64,
     pub tailored_resume_md: String,
     pub tailored_letter_md: String,
+    pub tailored_resume_html: String,
+    pub tailored_letter_html: String,
     pub resume_format: Option<String>,
     pub letter_format: Option<String>,
     pub resume_file_name: Option<String>,
@@ -97,12 +102,8 @@ pub fn save_application(
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let now = db::now_iso();
 
-    let (resume_blob, letter_blob) = load_version_blobs_for_decision(
-        &conn,
-        req.ad_decision_id,
-        req.resume_format.as_deref(),
-        req.letter_format.as_deref(),
-    )?;
+    // Attachments are always generated from HTML/markdown — never from stored binary blobs.
+    let (resume_blob, letter_blob): (Option<Vec<u8>>, Option<Vec<u8>>) = (None, None);
 
     let application_method: Option<String> = conn
         .query_row(
@@ -126,12 +127,15 @@ pub fn save_application(
     if let Some(id) = existing {
         conn.execute(
             "UPDATE applications SET tailored_resume_md = ?1, tailored_letter_md = ?2,
-             resume_format = ?3, letter_format = ?4, resume_file_name = ?5, letter_file_name = ?6,
-             resume_file_blob = COALESCE(?7, resume_file_blob), letter_file_blob = COALESCE(?8, letter_file_blob)
-             WHERE id = ?9",
+             tailored_resume_html = ?3, tailored_letter_html = ?4,
+             resume_format = ?5, letter_format = ?6, resume_file_name = ?7, letter_file_name = ?8,
+             resume_file_blob = COALESCE(?9, resume_file_blob), letter_file_blob = COALESCE(?10, letter_file_blob)
+             WHERE id = ?11",
             rusqlite::params![
                 req.tailored_resume_md,
                 req.tailored_letter_md,
+                req.tailored_resume_html,
+                req.tailored_letter_html,
                 req.resume_format,
                 req.letter_format,
                 req.resume_file_name,
@@ -147,14 +151,17 @@ pub fn save_application(
 
     conn.execute(
         "INSERT INTO applications (profile_id, ad_decision_id, tailored_resume_md, tailored_letter_md,
+         tailored_resume_html, tailored_letter_html,
          resume_format, letter_format, resume_file_name, letter_file_name, resume_file_blob, letter_file_blob,
          application_method, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         rusqlite::params![
             req.profile_id,
             req.ad_decision_id,
             req.tailored_resume_md,
             req.tailored_letter_md,
+            req.tailored_resume_html,
+            req.tailored_letter_html,
             req.resume_format,
             req.letter_format,
             req.resume_file_name,
@@ -167,33 +174,6 @@ pub fn save_application(
     )
     .map_err(|e| e.to_string())?;
     get_application_by_id(&conn, conn.last_insert_rowid())
-}
-
-fn load_version_blobs_for_decision(
-    conn: &rusqlite::Connection,
-    decision_id: i64,
-    resume_format: Option<&str>,
-    letter_format: Option<&str>,
-) -> Result<(Option<Vec<u8>>, Option<Vec<u8>>), String> {
-    let (resume_vid, letter_vid): (Option<i64>, Option<i64>) = conn
-        .query_row(
-            "SELECT resume_version_id, letter_version_id FROM ad_decisions WHERE id = ?1",
-            [decision_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .map_err(|e| e.to_string())?;
-
-    let resume_blob = if resume_format == Some("pdf") || resume_format == Some("docx") {
-        resume_vid.and_then(|id| get_version_with_blob(conn, id).ok().and_then(|(_, b)| b))
-    } else {
-        None
-    };
-    let letter_blob = if letter_format == Some("pdf") || letter_format == Some("docx") {
-        letter_vid.and_then(|id| get_version_with_blob(conn, id).ok().and_then(|(_, b)| b))
-    } else {
-        None
-    };
-    Ok((resume_blob, letter_blob))
 }
 
 fn get_application_by_id(conn: &rusqlite::Connection, id: i64) -> Result<Application, String> {
@@ -272,13 +252,16 @@ pub fn approve_application(
     email_bcc: String,
     tailored_resume_md: String,
     tailored_letter_md: String,
+    tailored_resume_html: String,
+    tailored_letter_html: String,
 ) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let now = db::now_iso();
     conn.execute(
         "UPDATE applications SET email_subject = ?1, email_body = ?2, email_to = ?3, email_cc = ?4,
-         email_bcc = ?5, tailored_resume_md = ?6, tailored_letter_md = ?7, approved_at = ?8
-         WHERE id = ?9",
+         email_bcc = ?5, tailored_resume_md = ?6, tailored_letter_md = ?7,
+         tailored_resume_html = ?8, tailored_letter_html = ?9, approved_at = ?10
+         WHERE id = ?11",
         rusqlite::params![
             email_subject,
             email_body,
@@ -287,6 +270,8 @@ pub fn approve_application(
             email_bcc,
             tailored_resume_md,
             tailored_letter_md,
+            tailored_resume_html,
+            tailored_letter_html,
             now,
             application_id
         ],
@@ -360,26 +345,30 @@ pub fn get_application_attachments(
         String,
         String,
         String,
+        String,
+        String,
         Option<Vec<u8>>,
         Option<Vec<u8>>,
     ),
     String,
 > {
     conn.query_row(
-        "SELECT tailored_resume_md, tailored_letter_md, resume_format, letter_format,
-         resume_file_name, letter_file_name, resume_file_blob, letter_file_blob
+        "SELECT tailored_resume_md, tailored_letter_md, tailored_resume_html, tailored_letter_html,
+         resume_format, letter_format, resume_file_name, letter_file_name, resume_file_blob, letter_file_blob
          FROM applications WHERE id = ?1",
         [application_id],
         |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "markdown".into()),
-                row.get::<_, Option<String>>(3)?.unwrap_or_else(|| "markdown".into()),
-                row.get::<_, Option<String>>(4)?.unwrap_or_else(|| "resume.pdf".into()),
-                row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "personal_letter.pdf".into()),
-                row.get::<_, Option<Vec<u8>>>(6)?,
-                row.get::<_, Option<Vec<u8>>>(7)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?.unwrap_or_else(|| "markdown".into()),
+                row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "markdown".into()),
+                row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "resume.pdf".into()),
+                row.get::<_, Option<String>>(7)?.unwrap_or_else(|| "personal_letter.pdf".into()),
+                row.get::<_, Option<Vec<u8>>>(8)?,
+                row.get::<_, Option<Vec<u8>>>(9)?,
             ))
         },
     )
@@ -408,6 +397,7 @@ pub fn search_archive(
         let mut stmt = conn
             .prepare(
                 "SELECT a.id, a.profile_id, a.ad_decision_id, a.tailored_resume_md, a.tailored_letter_md,
+                 a.tailored_resume_html, a.tailored_letter_html,
                  a.email_subject, a.email_body, a.email_to, a.email_cc, a.email_bcc, a.gmail_draft_id,
                  a.approved_at, a.sent_at, a.created_at, a.resume_format, a.letter_format, a.resume_file_name, a.letter_file_name,
                  a.application_method, a.export_path, a.apply_notes
@@ -494,19 +484,34 @@ pub fn get_application_file_base64(
     doc_type: String,
 ) -> Result<DocumentFilePayload, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let (resume_md, letter_md, resume_fmt, letter_fmt, resume_name, letter_name, resume_blob, letter_blob) =
+    let (resume_md, letter_md, resume_html, letter_html, resume_fmt, letter_fmt, resume_name, letter_name, _resume_blob, _letter_blob) =
         get_application_attachments(&conn, application_id)?;
 
-    let (format, file_name, md_content, blob) = if doc_type == "resume" {
-        (resume_fmt, resume_name, resume_md, resume_blob)
+    let (format, file_name, md_content, html_content) = if doc_type == "resume" {
+        (resume_fmt, resume_name, resume_md, resume_html)
     } else if doc_type == "letter" {
-        (letter_fmt, letter_name, letter_md, letter_blob)
+        (letter_fmt, letter_name, letter_md, letter_html)
     } else {
         return Err("doc_type must be 'resume' or 'letter'".into());
     };
 
-    if format == "markdown" {
-        let attachment = resolve_attachment(&format, &file_name, &md_content, None)?;
+    if format == "markdown" || format == "html" {
+        let profile_id: i64 = conn
+            .query_row(
+                "SELECT profile_id FROM applications WHERE id = ?1",
+                [application_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let font_css = crate::commands::fonts::build_custom_fonts_css(profile_id).unwrap_or_default();
+        let attachment = resolve_attachment(
+            &format,
+            &file_name,
+            &md_content,
+            &html_content,
+            None,
+            &font_css,
+        )?;
         let data_base64 = attachment.content_b64();
         return Ok(DocumentFilePayload {
             format: "pdf".into(),
@@ -515,12 +520,10 @@ pub fn get_application_file_base64(
         });
     }
 
-    let bytes = blob.ok_or("Missing file data for this application document")?;
-    Ok(DocumentFilePayload {
-        format,
-        file_name: Some(file_name),
-        data_base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
-    })
+    Err(
+        "Binary PDF/DOCX application documents are no longer supported. Re-open the role document to convert it to editable HTML."
+            .into(),
+    )
 }
 
 fn sanitize_folder_name(value: &str) -> String {
@@ -563,7 +566,7 @@ pub fn export_application_package(
 ) -> Result<ExportPackageResult, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
 
-    let (resume_md, letter_md, resume_fmt, letter_fmt, resume_name, letter_name, resume_blob, letter_blob) =
+    let (resume_md, letter_md, resume_html, letter_html, resume_fmt, letter_fmt, resume_name, letter_name, resume_blob, letter_blob) =
         get_application_attachments(&conn, application_id)?;
 
     let (headline, employer_name, af_ad_id, raw_json, decision_id): (
@@ -592,8 +595,23 @@ pub fn export_application_package(
         )
         .map_err(|e| e.to_string())?;
 
-    let resume = resolve_attachment(&resume_fmt, &resume_name, &resume_md, resume_blob)?;
-    let letter = resolve_attachment(&letter_fmt, &letter_name, &letter_md, letter_blob)?;
+    let font_css = crate::commands::fonts::build_custom_fonts_css(profile_id).unwrap_or_default();
+    let resume = resolve_attachment(
+        &resume_fmt,
+        &resume_name,
+        &resume_md,
+        &resume_html,
+        resume_blob,
+        &font_css,
+    )?;
+    let letter = resolve_attachment(
+        &letter_fmt,
+        &letter_name,
+        &letter_md,
+        &letter_html,
+        letter_blob,
+        &font_css,
+    )?;
 
     let export_root = PathBuf::from(get_export_dir_for_profile(&conn, profile_id)?);
     fs::create_dir_all(&export_root).map_err(|e| format!("Failed to create export folder: {e}"))?;

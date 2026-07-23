@@ -102,16 +102,17 @@ pub async fn create_gmail_draft(
         (req.to.clone(), req.cc.clone(), req.bcc.clone())
     };
 
-    let (resume_md, letter_md, resume_fmt, letter_fmt, resume_name, letter_name, resume_blob, letter_blob) = {
+    let (resume_md, letter_md, resume_html, letter_html, resume_fmt, letter_fmt, resume_name, letter_name, resume_blob, letter_blob) = {
         let conn = state.conn.lock().map_err(|e| e.to_string())?;
         get_application_attachments(&conn, req.application_id)?
     };
 
+    let font_css = crate::commands::fonts::build_custom_fonts_css(req.profile_id).unwrap_or_default();
     let resume = attachment_part_from_resolved(&resolve_attachment(
-        &resume_fmt, &resume_name, &resume_md, resume_blob,
+        &resume_fmt, &resume_name, &resume_md, &resume_html, resume_blob, &font_css,
     )?);
     let letter = attachment_part_from_resolved(&resolve_attachment(
-        &letter_fmt, &letter_name, &letter_md, letter_blob,
+        &letter_fmt, &letter_name, &letter_md, &letter_html, letter_blob, &font_css,
     )?);
 
     let mime = build_mime_message(&to, &cc, &bcc, &req.subject, &req.body, &resume, &letter);

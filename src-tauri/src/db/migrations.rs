@@ -18,6 +18,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         conn.pragma_update(None, "user_version", 4)?;
     }
 
+    if version < 5 {
+        migrate_to_v5(conn)?;
+        conn.pragma_update(None, "user_version", 5)?;
+    }
+
     Ok(())
 }
 
@@ -70,6 +75,52 @@ fn migrate_to_v3(conn: &Connection) -> Result<()> {
 
 fn migrate_to_v4(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "roles", "prompt_tailor_docs", "TEXT")?;
+    Ok(())
+}
+
+fn migrate_to_v5(conn: &Connection) -> Result<()> {
+    add_column_if_missing(conn, "role_documents", "content_html", "TEXT NOT NULL DEFAULT ''")?;
+    add_column_if_missing(
+        conn,
+        "applications",
+        "tailored_resume_html",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+    add_column_if_missing(
+        conn,
+        "applications",
+        "tailored_letter_html",
+        "TEXT NOT NULL DEFAULT ''",
+    )?;
+
+    // Recreate role_document_versions to allow 'html' in format CHECK and add content_html.
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS role_document_versions_v5 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+            doc_type TEXT NOT NULL CHECK(doc_type IN ('resume', 'letter')),
+            name TEXT NOT NULL,
+            format TEXT NOT NULL CHECK(format IN ('markdown', 'html', 'docx', 'pdf')),
+            content_md TEXT NOT NULL DEFAULT '',
+            content_html TEXT NOT NULL DEFAULT '',
+            file_blob BLOB,
+            file_name TEXT,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        INSERT INTO role_document_versions_v5
+            (id, role_id, doc_type, name, format, content_md, content_html, file_blob, file_name, is_default, created_at, updated_at)
+        SELECT id, role_id, doc_type, name, format, content_md, '', file_blob, file_name, is_default, created_at, updated_at
+        FROM role_document_versions;
+
+        DROP TABLE role_document_versions;
+        ALTER TABLE role_document_versions_v5 RENAME TO role_document_versions;
+        "#,
+    )?;
+
     Ok(())
 }
 

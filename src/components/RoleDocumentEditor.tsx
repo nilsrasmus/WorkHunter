@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MarkdownEditor } from "./MarkdownEditor";
+import { RichDocumentEditor } from "./RichDocumentEditor";
 export type RoleDocTab = "resume" | "letter";
 
 interface Props {
@@ -49,7 +49,8 @@ export function RoleDocumentEditor({
         {" "}— switch tabs to edit the other document.
       </p>
       <div className="doc-editor-workspace">
-        <MarkdownEditor value={value} onChange={onChange} />      </div>
+        <RichDocumentEditor value={value} onChange={onChange} />
+      </div>
     </div>
   );
 }

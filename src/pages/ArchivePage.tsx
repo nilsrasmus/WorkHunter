@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { MarkdownEditor } from "../components/MarkdownEditor";
-import { BinaryDocumentPreview } from "../components/BinaryDocumentPreview";
+import { RichDocumentEditor } from "../components/RichDocumentEditor";
 import { AdPanel } from "../components/AdPanel";
 import { api } from "../lib/api";
 import {
@@ -10,10 +9,17 @@ import {
   detectApplicationMethod,
   getApplicationUrl,
 } from "../lib/applicationMethod";
+import { markdownToHtml } from "../lib/documentUtils";
 import { revealExportFolder } from "../lib/openExportFolder";
 import { useI18n } from "../lib/i18n";
 import { useSession } from "../context/SessionContext";
 import type { ApplicationWithMeta } from "../types";
+
+function archiveDocHtml(html: string | undefined, md: string | undefined): string {
+  if (html?.trim()) return html;
+  if (md?.trim()) return markdownToHtml(md);
+  return "<p></p>";
+}
 
 export function ArchivePage() {
   const { profile } = useSession();
@@ -216,30 +222,24 @@ export function ArchivePage() {
               </div>
               <div className="ui-section-document">
                 {docTab === "resume" && (
-                  selected.application.resume_format && selected.application.resume_format !== "markdown" ? (
-                    <BinaryDocumentPreview
-                      source={{ kind: "application", applicationId: selected.application.id, docType: "resume" }}
-                    />
-                  ) : (
-                    <MarkdownEditor
-                      value={selected.application.tailored_resume_md}
-                      onChange={() => {}}
-                      preview
-                    />
-                  )
+                  <RichDocumentEditor
+                    value={archiveDocHtml(
+                      selected.application.tailored_resume_html,
+                      selected.application.tailored_resume_md,
+                    )}
+                    onChange={() => {}}
+                    preview
+                  />
                 )}
                 {docTab === "letter" && (
-                  selected.application.letter_format && selected.application.letter_format !== "markdown" ? (
-                    <BinaryDocumentPreview
-                      source={{ kind: "application", applicationId: selected.application.id, docType: "letter" }}
-                    />
-                  ) : (
-                    <MarkdownEditor
-                      value={selected.application.tailored_letter_md}
-                      onChange={() => {}}
-                      preview
-                    />
-                  )
+                  <RichDocumentEditor
+                    value={archiveDocHtml(
+                      selected.application.tailored_letter_html,
+                      selected.application.tailored_letter_md,
+                    )}
+                    onChange={() => {}}
+                    preview
+                  />
                 )}
                 {docTab === "email" && selectedMethod === "email" && (
                   <pre className="email-body-preview">{selected.application.email_body}</pre>

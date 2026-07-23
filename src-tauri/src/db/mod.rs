@@ -52,6 +52,7 @@ pub fn init_db() -> Result<Connection> {
             role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
             doc_type TEXT NOT NULL CHECK(doc_type IN ('resume', 'letter')),
             content_md TEXT NOT NULL DEFAULT '',
+            content_html TEXT NOT NULL DEFAULT '',
             updated_at TEXT NOT NULL,
             UNIQUE(role_id, doc_type)
         );
@@ -61,8 +62,9 @@ pub fn init_db() -> Result<Connection> {
             role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
             doc_type TEXT NOT NULL CHECK(doc_type IN ('resume', 'letter')),
             name TEXT NOT NULL,
-            format TEXT NOT NULL CHECK(format IN ('markdown', 'docx', 'pdf')),
+            format TEXT NOT NULL CHECK(format IN ('markdown', 'html', 'docx', 'pdf')),
             content_md TEXT NOT NULL DEFAULT '',
+            content_html TEXT NOT NULL DEFAULT '',
             file_blob BLOB,
             file_name TEXT,
             is_default INTEGER NOT NULL DEFAULT 0,
@@ -114,6 +116,8 @@ pub fn init_db() -> Result<Connection> {
             ad_decision_id INTEGER NOT NULL REFERENCES ad_decisions(id) ON DELETE CASCADE,
             tailored_resume_md TEXT NOT NULL DEFAULT '',
             tailored_letter_md TEXT NOT NULL DEFAULT '',
+            tailored_resume_html TEXT NOT NULL DEFAULT '',
+            tailored_letter_html TEXT NOT NULL DEFAULT '',
             email_subject TEXT,
             email_body TEXT,
             email_to TEXT,

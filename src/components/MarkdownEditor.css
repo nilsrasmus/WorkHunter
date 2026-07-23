@@ -68,6 +68,7 @@
   background: var(--border);
 }
 
+/* Document page is always paper-white — matches PDF export, independent of app theme. */
 .md-editor .tiptap,
 .md-editor .md-editor-content {
   flex: 1;
@@ -76,8 +77,10 @@
   padding: 1rem 1.15rem;
   outline: none;
   line-height: 1.6;
-  color: var(--text);
+  color: #12161a;
   font-size: 0.95rem;
+  background: #ffffff;
+  color-scheme: light;
 }
 
 .md-editor .tiptap > *:first-child,
@@ -100,6 +103,7 @@
   margin: 0.9em 0 0.4em;
   font-size: 1.55rem;
   line-height: 1.25;
+  color: #12161a;
 }
 
 .md-editor .tiptap h2,
@@ -107,6 +111,7 @@
   margin: 0.9em 0 0.4em;
   font-size: 1.25rem;
   line-height: 1.3;
+  color: #12161a;
 }
 
 .md-editor .tiptap h3,
@@ -114,6 +119,7 @@
   margin: 0.85em 0 0.35em;
   font-size: 1.05rem;
   line-height: 1.35;
+  color: #12161a;
 }
 
 .md-editor .tiptap ul,
@@ -133,8 +139,8 @@
 .md-editor .md-editor-content blockquote {
   margin: 0.75em 0;
   padding: 0.15em 0 0.15em 0.9em;
-  border-left: 3px solid var(--border);
-  color: var(--text-muted);
+  border-left: 3px solid #cdd1d6;
+  color: #5c6570;
 }
 
 .md-editor .tiptap code,
@@ -143,13 +149,14 @@
   font-size: 0.88em;
   padding: 0.1em 0.35em;
   border-radius: 4px;
-  background: var(--bg);
+  background: #f0f2f4;
+  color: #12161a;
 }
 
 .md-editor .tiptap hr,
 .md-editor .md-editor-content hr {
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid #cdd1d6;
   margin: 1.25em 0;
 }
 
@@ -166,4 +173,78 @@
 
 .md-editor-fill .md-editor {
   flex: 1;
+}
+
+.rich-toolbar-select {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.35rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  max-width: 7rem;
+}
+
+.rich-toolbar-select--size {
+  max-width: 4.5rem;
+}
+
+.rich-toolbar-color {
+  width: 2rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  cursor: pointer;
+}
+
+.rich-editor-content [data-wh-slot],
+.rich-document-editor .tiptap [data-wh-slot] {
+  border-left: 3px solid #2d6a4f;
+  padding-left: 0.5rem;
+}
+
+.rich-editor-page {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+}
+
+.rich-editor-page .tiptap,
+.rich-editor-page .md-editor-content {
+  flex: 1;
+}
+
+.page-break-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+}
+
+.page-break-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 2px dashed rgba(45, 106, 79, 0.45);
+}
+
+.page-break-label {
+  position: absolute;
+  top: -0.85rem;
+  right: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: rgba(45, 106, 79, 0.12);
+  color: rgba(45, 106, 79, 0.85);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }

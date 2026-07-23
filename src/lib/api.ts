@@ -4,6 +4,7 @@ import type {
   AdDecision,
   Application,
   ApplicationWithMeta,
+  CustomFont,
   DocumentFormat,
   Profile,
   ProfileSettings,
@@ -54,24 +55,51 @@ export const api = {
       contentMd,
       setDefault,
     }),
-  updateRoleDocumentMarkdown: (versionId: number, contentMd: string) =>
-    invoke<RoleDocumentVersion>("update_role_document_markdown", { versionId, contentMd }),
-  uploadRoleDocumentFile: (
+  createRoleDocumentHtml: (
     roleId: number,
     docType: "resume" | "letter",
     name: string,
-    format: "docx" | "pdf",
-    fileName: string,
-    fileBase64: string,
+    contentHtml: string,
+    setDefault: boolean,
   ) =>
-    invoke<RoleDocumentVersion>("upload_role_document_file", {
+    invoke<RoleDocumentVersion>("create_role_document_html", {
       roleId,
       docType,
       name,
-      format,
+      contentHtml,
+      setDefault,
+    }),
+  updateRoleDocumentMarkdown: (versionId: number, contentMd: string) =>
+    invoke<RoleDocumentVersion>("update_role_document_markdown", { versionId, contentMd }),
+  updateRoleDocumentHtml: (versionId: number, contentHtml: string) =>
+    invoke<RoleDocumentVersion>("update_role_document_html", { versionId, contentHtml }),
+  convertRoleDocumentToHtml: (versionId: number, contentHtml: string) =>
+    invoke<RoleDocumentVersion>("convert_role_document_to_html", { versionId, contentHtml }),
+  generateHtmlPdfBase64: (html: string, fontCss?: string) =>
+    invoke<string>("generate_html_pdf_base64", { html, fontCss: fontCss ?? null }),
+  listCustomFonts: (profileId: number) =>
+    invoke<CustomFont[]>("list_custom_fonts", { profileId }),
+  addCustomFont: (
+    profileId: number,
+    family: string,
+    fileName: string,
+    fileBase64: string,
+  ) =>
+    invoke<CustomFont>("add_custom_font", {
+      profileId,
+      family,
       fileName,
       fileBase64,
     }),
+  deleteCustomFont: (profileId: number, fontId: string) =>
+    invoke<void>("delete_custom_font", { profileId, fontId }),
+  getCustomFontsCss: (profileId: number) =>
+    invoke<string>("get_custom_fonts_css", { profileId }),
+  getRoleDocumentFileBase64: (versionId: number) =>
+    invoke<{ format: string; file_name: string | null; data_base64: string }>(
+      "get_role_document_file_base64",
+      { versionId },
+    ),
   renameRoleDocumentVersion: (versionId: number, name: string) =>
     invoke<RoleDocumentVersion>("rename_role_document_version", { versionId, name }),
   setDefaultRoleDocumentVersion: (versionId: number) =>
@@ -164,6 +192,8 @@ export const api = {
     adDecisionId: number;
     tailoredResumeMd: string;
     tailoredLetterMd: string;
+    tailoredResumeHtml: string;
+    tailoredLetterHtml: string;
     resumeFormat?: DocumentFormat | null;
     letterFormat?: DocumentFormat | null;
     resumeFileName?: string | null;
@@ -175,6 +205,8 @@ export const api = {
         ad_decision_id: req.adDecisionId,
         tailored_resume_md: req.tailoredResumeMd,
         tailored_letter_md: req.tailoredLetterMd,
+        tailored_resume_html: req.tailoredResumeHtml,
+        tailored_letter_html: req.tailoredLetterHtml,
         resume_format: req.resumeFormat ?? null,
         letter_format: req.letterFormat ?? null,
         resume_file_name: req.resumeFileName ?? null,
@@ -198,6 +230,8 @@ export const api = {
     emailBcc: string,
     tailoredResumeMd: string,
     tailoredLetterMd: string,
+    tailoredResumeHtml: string,
+    tailoredLetterHtml: string,
   ) =>
     invoke<void>("approve_application", {
       applicationId,
@@ -208,6 +242,8 @@ export const api = {
       emailBcc,
       tailoredResumeMd,
       tailoredLetterMd,
+      tailoredResumeHtml,
+      tailoredLetterHtml,
     }),
   markApplicationSent: (applicationId: number) =>
     invoke<void>("mark_application_sent", { applicationId }),

@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readFile, readTextFile } from "@tauri-apps/plugin-fs";
 import { RoleDocumentEditor, type RoleDocTab } from "../components/RoleDocumentEditor";
 import { api } from "../lib/api";
-import { bytesToBase64 } from "../lib/files";
+import { importPathToHtml } from "../lib/ensureEditableHtml";
 import { useSession } from "../context/SessionContext";
 
 export function SetupWizard() {
@@ -52,8 +51,15 @@ export function SetupWizard() {
     setLoading(true);
     setError("");
     try {
-      await api.updateRoleDocument(roleId, "resume", resume);
-      await api.updateRoleDocument(roleId, "letter", letter);
+      const versions = await api.listRoleDocumentVersions(roleId);
+      const resumeVersion = versions.find((v) => v.doc_type === "resume" && v.is_default);
+      const letterVersion = versions.find((v) => v.doc_type === "letter" && v.is_default);
+      if (resumeVersion) {
+        await api.updateRoleDocumentHtml(resumeVersion.id, resume);
+      }
+      if (letterVersion) {
+        await api.updateRoleDocumentHtml(letterVersion.id, letter);
+      }
       setStep(4);
     } catch (e) {
       setError(String(e));
@@ -83,19 +89,17 @@ export function SetupWizard() {
       filters: [{ name: "Documents", extensions: ["md", "txt", "pdf", "docx"] }],
     });
     if (!file || typeof file !== "string") return;
-    const lower = file.toLowerCase();
-    if (lower.endsWith(".md") || lower.endsWith(".txt")) {
-      const content = await readTextFile(file);
+    setLoading(true);
+    setError("");
+    try {
+      const content = await importPathToHtml(file);
       if (docType === "resume") setResume(content);
       else setLetter(content);
-      return;
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
     }
-    const format = lower.endsWith(".pdf") ? "pdf" as const : "docx" as const;
-    const bytes = await readFile(file);
-    const fileName = file.split(/[/\\]/).pop() ?? `upload.${format}`;
-    const name = fileName.replace(/\.(pdf|docx)$/i, "");
-    const v = await api.uploadRoleDocumentFile(roleId, docType, name, format, fileName, bytesToBase64(bytes));
-    await api.setDefaultRoleDocumentVersion(v.id);
   };
 
   const stepsBar = (
