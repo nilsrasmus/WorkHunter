@@ -150,9 +150,7 @@ export function RolesPage() {
           {selectedId ? (
             <>
               <article>
-                <header>
-                  <h2>{t("roles.section.editRole")}</h2>
-                </header>
+                <h3>{t("roles.section.editRole")}</h3>
                 <label>
                   {t("roles.roleName")}
                   <div role="group">
@@ -161,7 +159,7 @@ export function RolesPage() {
                       onChange={(e) => setName(e.target.value)}
                     />
                     <button type="button" className="btn btn-secondary" onClick={saveName} disabled={saving}>
-                      {saving ? t("common.saving") : t("roles.saveName")}
+                      {saving ? t("common.saving") : t("common.save")}
                     </button>
                   </div>
                 </label>
@@ -173,10 +171,8 @@ export function RolesPage() {
               </article>
 
               <article>
-                <header>
-                  <h2>{t("roles.section.tailorPrompt")}</h2>
-                </header>
-                <p className="hint">
+                <h3>{t("roles.section.tailorPrompt")}</h3>
+                <p className="hint hint-info">
                   {hasStoredTailorPrompt
                     ? t("roles.tailorPrompt.custom")
                     : t("roles.tailorPrompt.fallback")}
@@ -197,12 +193,12 @@ export function RolesPage() {
                         onClick={importBaseTailorPrompt}
                         disabled={!settings || savingPrompt}
                       >
-                        {t("roles.tailorPrompt.importBase")}
+                        {t("roles.tailorPrompt.importBaseShort")}
                       </button>
                     )}
                     <button
                       type="button"
-                      className="btn btn-primary"
+                      className="btn btn-secondary"
                       onClick={saveTailorPrompt}
                       disabled={!tailorPromptDirty || !tailorPromptDraft.trim() || savingPrompt}
                     >

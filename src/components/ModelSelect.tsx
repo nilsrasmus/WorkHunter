@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { IconRefresh } from "@tabler/icons-react";
 import {
   listAnthropicModels,
   listGeminiModels,
   pickDefaultModel,
   type AiModelOption,
 } from "../lib/ai-models";
+import { useI18n } from "../lib/i18n";
 
 interface Props {
   provider: "gemini" | "anthropic";
@@ -14,6 +16,7 @@ interface Props {
 }
 
 export function ModelSelect({ provider, apiKey, value, onChange }: Props) {
+  const { t } = useI18n();
   const [models, setModels] = useState<AiModelOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -23,7 +26,7 @@ export function ModelSelect({ provider, apiKey, value, onChange }: Props) {
   const load = useCallback(async () => {
     if (!apiKey.trim()) {
       setModels([]);
-      setError("Enter an API key to load models.");
+      setError(t("settings.model.enterKey"));
       return;
     }
     setLoading(true);
@@ -35,7 +38,7 @@ export function ModelSelect({ provider, apiKey, value, onChange }: Props) {
           : await listGeminiModels(apiKey);
       setModels(list);
       if (list.length === 0) {
-        setError("No models returned for this API key.");
+        setError(t("settings.model.noModels"));
         return;
       }
     } catch (e) {
@@ -44,7 +47,7 @@ export function ModelSelect({ provider, apiKey, value, onChange }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [apiKey, provider]);
+  }, [apiKey, provider, t]);
 
   useEffect(() => {
     void load();
@@ -74,16 +77,20 @@ export function ModelSelect({ provider, apiKey, value, onChange }: Props) {
             ))
           )}
         </select>
-        <button type="button" className="btn btn-secondary"
+        <button
+          type="button"
+          className="btn btn-secondary btn-icon-square"
           onClick={() => void load()}
           disabled={loading || !apiKey.trim()}
+          title={t("settings.model.refresh")}
+          aria-label={t("settings.model.refresh")}
         >
-          {loading ? "Loading…" : "Refresh"}
+          <IconRefresh size={16} className={loading ? "spin" : ""} aria-hidden="true" />
         </button>
       </div>
       {error && <p className="hint error-hint">{error}</p>}
       {!error && models.length > 0 && (
-        <p className="hint">{models.length} models available</p>
+        <p className="hint">{t("settings.model.available").replace("{count}", String(models.length))}</p>
       )}
     </div>
   );

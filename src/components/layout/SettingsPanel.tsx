@@ -4,8 +4,8 @@ import { clearGeminiPromptCache } from "../../lib/ai";
 import { useI18n } from "../../lib/i18n";
 import { useSession } from "../../context/SessionContext";
 import { ModelSelect } from "../ModelSelect";
-import type { AiProvider, AppLanguage, AppTheme, ProfileSettings } from "../../types";
-import { IconX } from '@tabler/icons-react'
+import type { AiProvider, AppLanguage, ProfileSettings } from "../../types";
+import { IconEye, IconEyeOff, IconX } from '@tabler/icons-react'
 
 interface Props {
   open: boolean;
@@ -19,6 +19,7 @@ export function SettingsPanel({ open, onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [message, setMessage] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -90,18 +91,6 @@ export function SettingsPanel({ open, onClose }: Props) {
                 <option value="en">{t("settings.language.en")}</option>
               </select>
             </label>
-            <label>
-              {t("settings.theme")}
-              <select
-                value={form.theme ?? "light"}
-                onChange={(e) =>
-                  setForm({ ...form, theme: e.target.value as AppTheme })
-                }
-              >
-                <option value="light">{t("settings.theme.light")}</option>
-                <option value="dark">{t("settings.theme.dark")}</option>
-              </select>
-            </label>
           </section>
 
           <section>
@@ -121,14 +110,25 @@ export function SettingsPanel({ open, onClose }: Props) {
             {form.ai_provider === "anthropic" ? (
               <>
                 <label>
-                  {t("settings.anthropicKey")}{" "}
-                  <input
-                    type="password"
-                    value={form.anthropic_api_key}
-                    onChange={(e) =>
-                      setForm({ ...form, anthropic_api_key: e.target.value })
-                    }
-                  />
+                  {t("settings.anthropicKey")}
+                  <div className="password-field">
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      value={form.anthropic_api_key}
+                      onChange={(e) =>
+                        setForm({ ...form, anthropic_api_key: e.target.value })
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn-icon password-toggle"
+                      onClick={() => setShowApiKey((v) => !v)}
+                      title={showApiKey ? t("settings.apiKey.hide") : t("settings.apiKey.show")}
+                      aria-label={showApiKey ? t("settings.apiKey.hide") : t("settings.apiKey.show")}
+                    >
+                      {showApiKey ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                    </button>
+                  </div>
                 </label>
                 <label>
                   {t("settings.model")}
@@ -145,14 +145,25 @@ export function SettingsPanel({ open, onClose }: Props) {
             ) : (
               <>
                 <label>
-                  {t("settings.geminiKey")}{" "}
-                  <input
-                    type="password"
-                    value={form.gemini_api_key}
-                    onChange={(e) =>
-                      setForm({ ...form, gemini_api_key: e.target.value })
-                    }
-                  />
+                  {t("settings.geminiKey")}
+                  <div className="password-field">
+                    <input
+                      type={showApiKey ? "text" : "password"}
+                      value={form.gemini_api_key}
+                      onChange={(e) =>
+                        setForm({ ...form, gemini_api_key: e.target.value })
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="btn-icon password-toggle"
+                      onClick={() => setShowApiKey((v) => !v)}
+                      title={showApiKey ? t("settings.apiKey.hide") : t("settings.apiKey.show")}
+                      aria-label={showApiKey ? t("settings.apiKey.hide") : t("settings.apiKey.show")}
+                    >
+                      {showApiKey ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                    </button>
+                  </div>
                 </label>
                 <label>
                   {t("settings.model")}
@@ -165,7 +176,10 @@ export function SettingsPanel({ open, onClose }: Props) {
                 </label>
               </>
             )}
-            <label>{t("settings.yourName")} <input value={form.your_name} onChange={(e) => setForm({ ...form, your_name: e.target.value })} /></label>
+            <label className="settings-email-name-label">
+              {t("settings.yourName")}
+              <input value={form.your_name} onChange={(e) => setForm({ ...form, your_name: e.target.value })} />
+            </label>
           </section>
 
           <section>
@@ -208,19 +222,29 @@ export function SettingsPanel({ open, onClose }: Props) {
           </section>
 
           <section>
-            <h3>{t("settings.testMode")}</h3>
-            <label className="checkbox-label">
-              <span className="taxonomy-option-check color--text-2">
-                <input type="checkbox" checked={form.test_mode} onChange={(e) => setForm({ ...form, test_mode: e.target.checked })} />
-              </span>
-              <span className="taxonomy-option-label">{t("settings.testModeLabel")}</span>
-            </label>
-            <label>{t("settings.testEmail")} <input type="email" value={form.test_email} onChange={(e) => setForm({ ...form, test_email: e.target.value })} /></label>
+            <div className="settings-toggle-row">
+              <div>
+                <p className="settings-toggle-label">{t("settings.testMode")}</p>
+                <p className="hint">{t("settings.testModeLabel")}</p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.test_mode}
+                className={`switch${form.test_mode ? " on" : ""}`}
+                onClick={() => setForm({ ...form, test_mode: !form.test_mode })}
+              >
+                <span className="switch-thumb" />
+              </button>
+            </div>
+            {form.test_mode && (
+              <label>{t("settings.testEmail")} <input type="email" value={form.test_email} onChange={(e) => setForm({ ...form, test_email: e.target.value })} /></label>
+            )}
           </section>
 
           <section className="danger-zone">
             <h3>{t("settings.clearData.title")}</h3>
-            <p>{t("settings.clearData.desc")}</p>
+            <p className="hint-info">{t("settings.clearData.desc")}</p>
             <button type="button" className="btn btn-danger" onClick={clearTestData} disabled={clearing}>
               {clearing ? t("settings.clearData.clearing") : t("settings.clearData.button")}
             </button>

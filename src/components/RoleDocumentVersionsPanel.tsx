@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { readFile, readTextFile } from "@tauri-apps/plugin-fs";
+import { IconFileText, IconUpload } from "@tabler/icons-react";
 import { MarkdownEditor } from "./MarkdownEditor";
 import { BinaryDocumentPreview } from "./BinaryDocumentPreview";
 import { api } from "../lib/api";
@@ -27,7 +28,6 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
-  const [newVersionName, setNewVersionName] = useState("");
   const [error, setError] = useState("");
 
   const tabVersions = versions.filter((v) => v.doc_type === tab);
@@ -80,12 +80,11 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
   };
 
   const createMarkdownVersion = async () => {
-    const name = newVersionName.trim() || `Version ${tabVersions.length + 1}`;
+    const name = `Version ${tabVersions.length + 1}`;
     setSaving(true);
     setError("");
     try {
       const v = await api.createRoleDocumentMarkdown(roleId, tab, name, "", false);
-      setNewVersionName("");
       setSelectedId(v.id);
       setContent("");
       await loadVersions();
@@ -192,7 +191,7 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
 
   return (
     <div className="role-document-versions">
-      <div className="doc-editor-toolbar">
+      <article>
         <div className="doc-tabs doc-tabs-lg">
           <button type="button" className={tab === "resume" ? "active" : ""} onClick={() => setTab("resume")}>
             {t("roles.tab.resume")}
@@ -201,87 +200,80 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
             {t("roles.tab.letter")}
           </button>
         </div>
-      </div>
 
-      {error && <p className="error-msg">{error}</p>}
+        {error && <p className="error-msg">{error}</p>}
 
-      <article>
-        <header>
-          <h2>{t("roles.section.newDocument")}</h2>
-        </header>
-        <div role="group">
-          <input
-            value={newVersionName}
-            onChange={(e) => setNewVersionName(e.target.value)}
-            placeholder={t("roles.newMarkdownPlaceholder")}
-          />
-          <button type="button" className="btn btn-secondary" onClick={createMarkdownVersion} disabled={saving}>
-            {t("roles.newMarkdown")}
-          </button>
-          <button type="button" className="btn btn-secondary" onClick={uploadFile} disabled={saving}>
-            {t("roles.uploadFile")}
-          </button>
-        </div>
-      </article>
-
-      <article className="ui-section--version">
-        <header>
-          <h2>{t("roles.section.version")}</h2>
-        </header>
-        <div role="group">
-          <select
-            value={selectedId ?? ""}
-            onChange={(e) => setSelectedId(Number(e.target.value))}
-          >
-            {tabVersions.map((v) => (
-              <option key={v.id} value={v.id}>
-                {versionDisplayName(v)}{v.is_default ? " ★" : ""}
-              </option>
-            ))}
-          </select>
-          {selected && !selected.is_default && (
-            <button type="button" className="btn btn-secondary" onClick={setDefault} disabled={saving}>
-              {t("roles.setDefault")}
+        <div className="role-document-new">
+          <h3>{t("roles.section.newDocument")}</h3>
+          <div role="group">
+            <button type="button" className="btn btn-secondary" onClick={createMarkdownVersion} disabled={saving}>
+              <IconFileText size={16} aria-hidden="true" />
+              {t("roles.newMarkdown")}
             </button>
-          )}
-          <button type="button" className="btn btn-secondary" onClick={renameVersion} disabled={!selected || saving}>
-            {t("roles.rename")}
-          </button>
-          {tabVersions.length > 1 && (
-            <button type="button" className="btn btn-danger" onClick={deleteVersion} disabled={!selected || saving}>
-              {t("common.delete")}
+            <button type="button" className="btn btn-secondary" onClick={uploadFile} disabled={saving}>
+              <IconUpload size={16} aria-hidden="true" />
+              {t("roles.uploadFile")}
             </button>
-          )}
+          </div>
         </div>
 
-        <div className="ui-section-document">
-          {selected?.format === "markdown" ? (
-            <>
-              <p className="doc-editor-hint">
-                {t("roles.editing")} <strong>{selected.name}</strong> ({formatLabel(selected.format)})
-                {selected.is_default && ` ${t("roles.defaultVersion")}`}
-                {!canTailorFormat(selected.format) && ` ${t("roles.cannotTailor")}`}
-              </p>
-              <div className="doc-editor-workspace">
-                <MarkdownEditor value={content} onChange={setContent} />
-              </div>
-              <div className="version-save-row" role="group">
-                <button type="button" className="btn btn-primary" onClick={saveMarkdown} disabled={saving}>
-                  {saving ? t("common.saving") : t("roles.saveVersion")}
+        {tabVersions.length > 0 && (
+          <div className="role-document-existing">
+            <h3>{t("roles.section.version")}</h3>
+            <div role="group">
+              <select
+                value={selectedId ?? ""}
+                onChange={(e) => setSelectedId(Number(e.target.value))}
+              >
+                {tabVersions.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {versionDisplayName(v)}{v.is_default ? " ★" : ""}
+                  </option>
+                ))}
+              </select>
+              {selected && !selected.is_default && (
+                <button type="button" className="btn btn-secondary" onClick={setDefault} disabled={saving}>
+                  {t("roles.setDefault")}
                 </button>
-              </div>
-            </>
-          ) : selected ? (
-            <div className="binary-doc-preview">
-              <h3>{selected.name}</h3>
-              {selected.is_default && <p className="hint">{t("roles.defaultForRole")}</p>}
-              <p className="hint">{t("roles.binaryHint")}</p>
-              <BinaryDocumentPreview source={{ kind: "version", versionId: selected.id }} />
+              )}
+              <button type="button" className="btn btn-secondary" onClick={renameVersion} disabled={!selected || saving}>
+                {t("roles.rename")}
+              </button>
+              {tabVersions.length > 1 && (
+                <button type="button" className="btn btn-danger" onClick={deleteVersion} disabled={!selected || saving}>
+                  {t("common.delete")}
+                </button>
+              )}
             </div>
-          ) : (
-            <p className="empty-state">{t("roles.noVersions")}</p>
-          )}
-        </div>
+
+            <div className="ui-section-document">
+              {selected?.format === "markdown" ? (
+                <>
+                  <p className="doc-editor-hint">
+                    {t("roles.editing")} <strong>{selected.name}</strong> ({formatLabel(selected.format)})
+                    {selected.is_default && ` ${t("roles.defaultVersion")}`}
+                    {!canTailorFormat(selected.format) && ` ${t("roles.cannotTailor")}`}
+                  </p>
+                  <div className="doc-editor-workspace">
+                    <MarkdownEditor value={content} onChange={setContent} />
+                  </div>
+                  <div className="version-save-row" role="group">
+                    <button type="button" className="btn btn-primary" onClick={saveMarkdown} disabled={saving}>
+                      {saving ? t("common.saving") : t("roles.saveVersion")}
+                    </button>
+                  </div>
+                </>
+              ) : selected ? (
+                <div className="binary-doc-preview">
+                  <h3>{selected.name}</h3>
+                  {selected.is_default && <p className="hint">{t("roles.defaultForRole")}</p>}
+                  <p className="hint">{t("roles.binaryHint")}</p>
+                  <BinaryDocumentPreview source={{ kind: "version", versionId: selected.id }} />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
       </article>
     </div>
   );
