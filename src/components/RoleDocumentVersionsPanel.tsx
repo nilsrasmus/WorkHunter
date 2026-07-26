@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile, readTextFile } from "@tauri-apps/plugin-fs";
+import { IconFileText, IconUpload } from "@tabler/icons-react";
 import { BusyModal } from "./BusyModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { RichDocumentEditor } from "./RichDocumentEditor";
@@ -328,7 +329,8 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
         title={t("roles.convertingAiTitle")}
         message={t("roles.convertingAiBody")}
       />
-      <div className="doc-editor-toolbar">
+
+      <article>
         <div className="doc-tabs doc-tabs-lg">
           <button type="button" className={tab === "resume" ? "active" : ""} onClick={() => setTab("resume")}>
             {t("roles.tab.resume")}
@@ -337,101 +339,99 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
             {t("roles.tab.letter")}
           </button>
         </div>
-      </div>
 
-      {error && <p className="error-msg">{error}</p>}
+        {error && <p className="error-msg">{error}</p>}
 
-      <article>
-        <header>
-          <h2>{t("roles.section.newDocument")}</h2>
-        </header>
-        <div role="group">
-          <input
-            value={newVersionName}
-            onChange={(e) => setNewVersionName(e.target.value)}
-            placeholder={t("roles.newDocumentPlaceholder")}
-          />
-          <select
-            value={selectedTemplate}
-            onChange={(e) => setSelectedTemplate(e.target.value as DocumentTemplateId)}
-          >
-            {tabTemplates.map((template) => (
-              <option key={template.id} value={template.id}>
-                {t(template.labelKey as MessageKey)}
-              </option>
-            ))}
-          </select>
-          <button type="button" className="btn btn-secondary" onClick={() => createHtmlVersion()} disabled={busy}>
-            {t("roles.newDocument")}
-          </button>
-          <button type="button" className="btn btn-secondary" onClick={uploadFile} disabled={busy}>
-            {saving
-              ? (convertingWithAi ? t("roles.convertingAi") : t("roles.converting"))
-              : t("roles.uploadFile")}
-          </button>
-        </div>
-      </article>
-
-      <article className="ui-section--version">
-        <header>
-          <h2>{t("roles.section.version")}</h2>
-        </header>
-        <div role="group">
-          <select
-            value={selectedId ?? ""}
-            onChange={(e) => setSelectedId(Number(e.target.value))}
-          >
-            {tabVersions.map((v) => (
-              <option key={v.id} value={v.id}>
-                {versionDisplayName(v)}{v.is_default ? " ★" : ""}
-              </option>
-            ))}
-          </select>
-          {selected && !selected.is_default && (
-            <button type="button" className="btn btn-secondary" onClick={setDefault} disabled={busy}>
-              {t("roles.setDefault")}
+        <div className="role-document-new">
+          <h3>{t("roles.section.newDocument")}</h3>
+          <div role="group">
+            <input
+              value={newVersionName}
+              onChange={(e) => setNewVersionName(e.target.value)}
+              placeholder={t("roles.newDocumentPlaceholder")}
+            />
+            <select
+              value={selectedTemplate}
+              onChange={(e) => setSelectedTemplate(e.target.value as DocumentTemplateId)}
+            >
+              {tabTemplates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {t(template.labelKey as MessageKey)}
+                </option>
+              ))}
+            </select>
+            <button type="button" className="btn btn-secondary" onClick={() => createHtmlVersion()} disabled={busy}>
+              <IconFileText size={16} aria-hidden="true" />
+              {t("roles.newDocument")}
             </button>
-          )}
-          <button type="button" className="btn btn-secondary" onClick={renameVersion} disabled={!selected || busy}>
-            {t("roles.rename")}
-          </button>
-          {selected && (
-            <button type="button" className="btn btn-danger" onClick={requestDeleteVersion} disabled={busy}>
-              {t("common.delete")}
+            <button type="button" className="btn btn-secondary" onClick={uploadFile} disabled={busy}>
+              <IconUpload size={16} aria-hidden="true" />
+              {saving
+                ? (convertingWithAi ? t("roles.convertingAi") : t("roles.converting"))
+                : t("roles.uploadFile")}
             </button>
-          )}
+          </div>
         </div>
 
-        <div className="ui-section-document">
-          {showEditor ? (
-            <>
-              <p className="doc-editor-hint">
-                {converting
-                  ? (convertingWithAi ? t("roles.convertingAi") : t("roles.converting"))
-                  : (
-                    <>
-                      {t("roles.editing")} <strong>{selected!.name}</strong> ({formatLabel(selected!.format === "markdown" ? "html" : selected!.format)})
-                      {selected!.is_default && ` ${t("roles.defaultVersion")}`}
-                      {!canTailorFormat(selected!.format) && !isBinaryLegacyFormat(selected!.format) && ` ${t("roles.cannotTailor")}`}
-                    </>
-                  )}
-              </p>
-              {!converting && (
-                <>
-                  <div className="doc-editor-workspace">
-                    <RichDocumentEditor value={content} onChange={setContent} />
-                  </div>
-                  <div className="version-save-row" role="group">
-                    <button type="button" className="btn btn-primary" onClick={saveDocument} disabled={busy}>
-                      {saving ? t("common.saving") : t("roles.saveVersion")}
-                    </button>
-                  </div>
-                </>
-              )}
-            </>
-          ) : (
-            <p className="empty-state">{t("roles.noVersions")}</p>
-          )}
+        <div className="role-document-existing">
+          <h3>{t("roles.section.version")}</h3>
+          <div role="group">
+            <select
+              value={selectedId ?? ""}
+              onChange={(e) => setSelectedId(Number(e.target.value))}
+            >
+              {tabVersions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {versionDisplayName(v)}{v.is_default ? " ★" : ""}
+                </option>
+              ))}
+            </select>
+            {selected && !selected.is_default && (
+              <button type="button" className="btn btn-secondary" onClick={setDefault} disabled={busy}>
+                {t("roles.setDefault")}
+              </button>
+            )}
+            <button type="button" className="btn btn-secondary" onClick={renameVersion} disabled={!selected || busy}>
+              {t("roles.rename")}
+            </button>
+            {selected && (
+              <button type="button" className="btn btn-danger" onClick={requestDeleteVersion} disabled={busy}>
+                {t("common.delete")}
+              </button>
+            )}
+          </div>
+
+          <div className="ui-section-document">
+            {showEditor ? (
+              <>
+                <p className="doc-editor-hint">
+                  {converting
+                    ? (convertingWithAi ? t("roles.convertingAi") : t("roles.converting"))
+                    : (
+                      <>
+                        {t("roles.editing")} <strong>{selected!.name}</strong> ({formatLabel(selected!.format === "markdown" ? "html" : selected!.format)})
+                        {selected!.is_default && ` ${t("roles.defaultVersion")}`}
+                        {!canTailorFormat(selected!.format) && !isBinaryLegacyFormat(selected!.format) && ` ${t("roles.cannotTailor")}`}
+                      </>
+                    )}
+                </p>
+                {!converting && (
+                  <>
+                    <div className="doc-editor-workspace">
+                      <RichDocumentEditor value={content} onChange={setContent} />
+                    </div>
+                    <div className="version-save-row" role="group">
+                      <button type="button" className="btn btn-primary" onClick={saveDocument} disabled={busy}>
+                        {saving ? t("common.saving") : t("roles.saveVersion")}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </>
+            ) : (
+              <p className="empty-state">{t("roles.noVersions")}</p>
+            )}
+          </div>
         </div>
       </article>
     </div>
