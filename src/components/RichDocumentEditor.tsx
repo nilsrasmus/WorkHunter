@@ -192,24 +192,34 @@ export function RichDocumentEditor({
     const prose = shellRef.current.querySelector(".tiptap") as HTMLElement | null;
     if (!prose) return;
 
-    const onScroll = () => setScrollTop(prose.scrollTop);
+    let scrollRaf = 0;
+    const onScroll = () => {
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
+      scrollRaf = requestAnimationFrame(() => {
+        setScrollTop(prose.scrollTop);
+      });
+    };
     setScrollTop(prose.scrollTop);
     prose.addEventListener("scroll", onScroll, { passive: true });
 
-    const ro = new ResizeObserver(() => refreshPageBreaks());
+    let resizeRaf = 0;
+    const ro = new ResizeObserver(() => {
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(refreshPageBreaks);
+    });
     ro.observe(prose);
     const onUpdate = () => {
       requestAnimationFrame(refreshPageBreaks);
     };
     editor.on("update", onUpdate);
-    editor.on("selectionUpdate", onUpdate);
     return () => {
       prose.removeEventListener("scroll", onScroll);
       ro.disconnect();
       editor.off("update", onUpdate);
-      editor.off("selectionUpdate", onUpdate);
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
     };
-  }, [editor, refreshPageBreaks, value]);
+  }, [editor, refreshPageBreaks]);
 
   const toggleContentSlot = () => {
     if (!editor) return;
@@ -431,4 +441,3 @@ export function RichDocumentEditor({
 }
 
 /** @deprecated Use RichDocumentEditor */
-export const MarkdownEditor = RichDocumentEditor;

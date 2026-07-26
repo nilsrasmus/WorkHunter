@@ -1,4 +1,4 @@
-use genpdf::elements::{Break, LinearLayout, Paragraph};
+﻿use genpdf::elements::{Break, LinearLayout, Paragraph};
 use genpdf::fonts::{FontData, FontFamily};
 use genpdf::style::Style;
 use genpdf::{Document, Element, SimplePageDecorator};
@@ -358,7 +358,7 @@ fn render_rich_text(layout: &mut LinearLayout, rich: &RichText, base_size: u8) {
                 fragment_style(base_size, &fragment.style),
             );
         }
-        // Stack lines back-to-back — no Break between soft-break lines.
+        // Stack lines back-to-back â€” no Break between soft-break lines.
         layout.push(paragraph.styled(tight));
     }
 }
@@ -395,7 +395,7 @@ fn render_blocks(layout: &mut LinearLayout, blocks: &[Block]) {
             Block::Bullet(rich) => {
                 layout.push(Break::new(1));
                 let mut prefixed = rich.clone();
-                prefix_first_line(&mut prefixed, "• ");
+                prefix_first_line(&mut prefixed, "â€¢ ");
                 render_rich_text(layout, &prefixed, 11);
             }
             Block::Numbered(n, rich) => {
@@ -420,14 +420,6 @@ fn render_blocks(layout: &mut LinearLayout, blocks: &[Block]) {
             Block::Rule => layout.push(Break::new(4)),
         }
     }
-}
-
-pub fn markdown_to_pdf_base64(_title: &str, markdown: &str) -> Result<String, String> {
-    let pdf_bytes = markdown_to_pdf_bytes(markdown)?;
-    Ok(base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        &pdf_bytes,
-    ))
 }
 
 pub fn markdown_to_pdf_bytes(markdown: &str) -> Result<Vec<u8>, String> {
@@ -456,11 +448,6 @@ pub fn markdown_to_pdf_bytes(markdown: &str) -> Result<Vec<u8>, String> {
     let mut buf = Vec::new();
     doc.render(&mut buf).map_err(|e| e.to_string())?;
     Ok(buf)
-}
-
-#[tauri::command]
-pub fn generate_pdf_base64(title: String, markdown: String) -> Result<String, String> {
-    markdown_to_pdf_base64(&title, &markdown)
 }
 
 #[cfg(test)]

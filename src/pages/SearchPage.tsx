@@ -33,8 +33,10 @@ export function SearchPage() {
     if (!profile) return;
     const list = await api.listRoles(profile.id);
     setRoles(list);
-    if (list.length && !roleId) setRoleId(list[0].id);
-  }, [profile, roleId]);
+    if (list.length) {
+      setRoleId((current) => current ?? list[0].id);
+    }
+  }, [profile]);
 
   const loadPresets = useCallback(async () => {
     if (!profile) return;

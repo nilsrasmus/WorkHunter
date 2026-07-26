@@ -1,4 +1,7 @@
-use crate::crypto::{retrieve_token, store_token};
+use crate::crypto::{
+    delete_oauth_tokens, load_oauth_tokens, retrieve_legacy_token, store_api_key, store_oauth_tokens,
+    OAUTH_KEYRING_MARKER,
+};
 use crate::db::{self, DbState};
 use crate::defaults::default_settings;
 use serde::{Deserialize, Serialize};
@@ -32,26 +35,27 @@ fn row_to_profile(row: &rusqlite::Row) -> rusqlite::Result<Profile> {
 
 pub fn seed_profile_settings(conn: &rusqlite::Connection, profile_id: i64) -> rusqlite::Result<()> {
     for (key, value) in default_settings() {
+        // Never seed API keys into SQLite — they go to the OS keyring.
+        if key == "gemini_api_key" || key == "anthropic_api_key" {
+            conn.execute(
+                "INSERT OR IGNORE INTO profile_settings (profile_id, key, value) VALUES (?1, ?2, ?3)",
+                rusqlite::params![profile_id, key, ""],
+            )?;
+            continue;
+        }
         conn.execute(
             "INSERT OR IGNORE INTO profile_settings (profile_id, key, value) VALUES (?1, ?2, ?3)",
             rusqlite::params![profile_id, key, value],
         )?;
     }
-    // Load API keys from env if present
     if let Ok(key) = std::env::var("GEMINI_API_KEY") {
         if !key.is_empty() {
-            conn.execute(
-                "UPDATE profile_settings SET value = ?1 WHERE profile_id = ?2 AND key = 'gemini_api_key' AND (value = '' OR value IS NULL)",
-                rusqlite::params![key, profile_id],
-            )?;
+            let _ = store_api_key(profile_id, "gemini", &key);
         }
     }
     if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
         if !key.is_empty() {
-            conn.execute(
-                "UPDATE profile_settings SET value = ?1 WHERE profile_id = ?2 AND key = 'anthropic_api_key' AND (value = '' OR value IS NULL)",
-                rusqlite::params![key, profile_id],
-            )?;
+            let _ = store_api_key(profile_id, "anthropic", &key);
         }
     }
     Ok(())
@@ -84,6 +88,10 @@ pub fn logout(state: State<DbState>) -> Result<(), String> {
 #[tauri::command]
 pub fn complete_setup(state: State<DbState>, profile_id: i64) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let active = db::require_active_profile(&conn)?;
+    if active != profile_id {
+        return Err("Profile does not match the active session".into());
+    }
     conn.execute(
         "UPDATE profiles SET setup_completed = 1 WHERE id = ?1",
         [profile_id],
@@ -101,7 +109,6 @@ pub fn upsert_profile(
     tokens_json: &str,
 ) -> rusqlite::Result<i64> {
     let now = db::now_iso();
-    let encrypted = store_token(tokens_json);
     conn.execute(
         "INSERT INTO profiles (google_sub, email, display_name, avatar_url, oauth_tokens_encrypted, setup_completed, created_at, last_login_at)
          VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?6)
@@ -111,27 +118,68 @@ pub fn upsert_profile(
            avatar_url = excluded.avatar_url,
            oauth_tokens_encrypted = excluded.oauth_tokens_encrypted,
            last_login_at = excluded.last_login_at",
-        rusqlite::params![google_sub, email, display_name, avatar_url, encrypted, now],
+        rusqlite::params![
+            google_sub,
+            email,
+            display_name,
+            avatar_url,
+            OAUTH_KEYRING_MARKER,
+            now
+        ],
     )?;
     let id: i64 = conn.query_row(
         "SELECT id FROM profiles WHERE google_sub = ?1",
         [google_sub],
         |r| r.get(0),
     )?;
+    store_oauth_tokens(id, tokens_json).map_err(|e| {
+        rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            e,
+        )))
+    })?;
     seed_profile_settings(conn, id)?;
     db::set_active_profile_id(conn, id)?;
     Ok(id)
 }
 
 pub fn get_oauth_tokens(conn: &rusqlite::Connection, profile_id: i64) -> Result<String, String> {
-    let encrypted: String = conn
+    let stored: String = conn
         .query_row(
             "SELECT oauth_tokens_encrypted FROM profiles WHERE id = ?1",
             [profile_id],
             |r| r.get(0),
         )
         .map_err(|e| e.to_string())?;
-    retrieve_token(&encrypted).ok_or_else(|| "Failed to decrypt tokens".into())
+
+    if stored == OAUTH_KEYRING_MARKER {
+        return load_oauth_tokens(profile_id)?
+            .ok_or_else(|| "OAuth tokens missing from credential store; please sign in again".into());
+    }
+
+    // Migrate legacy obfuscated blob → keyring.
+    if let Some(plain) = retrieve_legacy_token(&stored) {
+        store_oauth_tokens(profile_id, &plain)?;
+        conn.execute(
+            "UPDATE profiles SET oauth_tokens_encrypted = ?1 WHERE id = ?2",
+            rusqlite::params![OAUTH_KEYRING_MARKER, profile_id],
+        )
+        .map_err(|e| e.to_string())?;
+        return Ok(plain);
+    }
+
+    // Already-plain JSON fallback (very old installs).
+    if stored.trim_start().starts_with('{') {
+        store_oauth_tokens(profile_id, &stored)?;
+        conn.execute(
+            "UPDATE profiles SET oauth_tokens_encrypted = ?1 WHERE id = ?2",
+            rusqlite::params![OAUTH_KEYRING_MARKER, profile_id],
+        )
+        .map_err(|e| e.to_string())?;
+        return Ok(stored);
+    }
+
+    Err("Failed to load OAuth tokens; please sign in again".into())
 }
 
 pub fn update_oauth_tokens(
@@ -139,10 +187,21 @@ pub fn update_oauth_tokens(
     profile_id: i64,
     tokens_json: &str,
 ) -> Result<(), String> {
-    let encrypted = store_token(tokens_json);
+    store_oauth_tokens(profile_id, tokens_json)?;
     conn.execute(
         "UPDATE profiles SET oauth_tokens_encrypted = ?1 WHERE id = ?2",
-        rusqlite::params![encrypted, profile_id],
+        rusqlite::params![OAUTH_KEYRING_MARKER, profile_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub fn clear_oauth_tokens(conn: &rusqlite::Connection, profile_id: i64) -> Result<(), String> {
+    delete_oauth_tokens(profile_id)?;
+    conn.execute(
+        "UPDATE profiles SET oauth_tokens_encrypted = '' WHERE id = ?1",
+        [profile_id],
     )
     .map_err(|e| e.to_string())?;
     Ok(())

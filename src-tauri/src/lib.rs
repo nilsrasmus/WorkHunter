@@ -2,33 +2,33 @@ mod commands;
 mod crypto;
 mod db;
 mod defaults;
+mod limits;
 
 use commands::{
+    ai::{ai_generate, ai_list_models},
     applications::{
         approve_application, export_application_package, get_application, get_application_by_decision,
-        get_application_file_base64, list_in_progress, mark_application_sent, save_application, save_apply_notes, search_archive,
+        mark_application_sent, save_application, save_apply_notes, search_archive,
         set_gmail_draft_id,
     },
     auth::start_google_auth,
-    decisions::{get_decision_with_ad, proceed_ad, reject_ad, update_decision_status},
+    decisions::{get_decision_with_ad, proceed_ad, reject_ad},
     gmail::create_gmail_draft,
     jobsearch::{
-        delete_search_preset, get_processed_ad_ids, jobsearch_complete, jobsearch_get_ad,
-        jobsearch_search,         list_search_presets, save_search_preset, taxonomy_list_concepts, taxonomy_municipalities,
-        taxonomy_municipalities_for_regions, taxonomy_search, taxonomy_swedish_regions,
+        delete_search_preset, get_processed_ad_ids, jobsearch_get_ad, jobsearch_search,
+        list_search_presets, save_search_preset, taxonomy_list_concepts,
+        taxonomy_municipalities_for_regions, taxonomy_swedish_regions,
     },
-    pdf::generate_pdf_base64,
     html_pdf::generate_html_pdf_base64,
-    fonts::{add_custom_font, delete_custom_font, get_custom_fonts_css, list_custom_fonts},
+    fonts::{add_custom_font, get_custom_fonts_css, list_custom_fonts},
     profiles::{complete_setup, get_session, logout},
-    retention::{days_until_retention, run_retention_cleanup},
+    retention::days_until_retention,
     roles::{
-        clear_role_tailor_prompt, convert_role_document_to_html, create_role, create_role_document_markdown,
+        clear_role_tailor_prompt, convert_role_document_to_html, create_role,
         create_role_document_html, delete_role, delete_role_document_version, get_role,
         get_role_document_file_base64, get_role_document_version, list_role_document_versions, list_roles,
         rename_role_document_version, save_role_tailor_prompt, set_default_role_document_version,
-        update_role_document, update_role_document_markdown, update_role_document_html, update_role_name,
-        upload_role_document_file,
+        update_role_document_html, update_role_name,
     },
     settings::{clear_workflow_data, get_default_prompts, get_settings, reset_prompt, save_settings},
 };
@@ -64,7 +64,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_shell::init())
         .manage(db_state)
         .setup(|app| {
             #[cfg(debug_assertions)]
@@ -80,19 +79,15 @@ pub fn run() {
             get_role,
             create_role,
             update_role_name,
-            update_role_document,
             delete_role,
             save_role_tailor_prompt,
             clear_role_tailor_prompt,
             list_role_document_versions,
             get_role_document_version,
             get_role_document_file_base64,
-            create_role_document_markdown,
             create_role_document_html,
-            update_role_document_markdown,
             update_role_document_html,
             convert_role_document_to_html,
-            upload_role_document_file,
             rename_role_document_version,
             set_default_role_document_version,
             delete_role_document_version,
@@ -101,13 +96,12 @@ pub fn run() {
             reset_prompt,
             clear_workflow_data,
             get_default_prompts,
+            ai_generate,
+            ai_list_models,
             jobsearch_search,
             jobsearch_get_ad,
-            jobsearch_complete,
-            taxonomy_search,
             taxonomy_list_concepts,
             taxonomy_swedish_regions,
-            taxonomy_municipalities,
             taxonomy_municipalities_for_regions,
             list_search_presets,
             save_search_preset,
@@ -116,26 +110,20 @@ pub fn run() {
             reject_ad,
             proceed_ad,
             get_decision_with_ad,
-            update_decision_status,
             save_application,
             get_application,
             get_application_by_decision,
-            get_application_file_base64,
             approve_application,
             mark_application_sent,
             set_gmail_draft_id,
             export_application_package,
             save_apply_notes,
             search_archive,
-            list_in_progress,
             create_gmail_draft,
-            generate_pdf_base64,
             generate_html_pdf_base64,
             list_custom_fonts,
             add_custom_font,
-            delete_custom_font,
             get_custom_fonts_css,
-            run_retention_cleanup,
             days_until_retention,
         ])
         .run(tauri::generate_context!())

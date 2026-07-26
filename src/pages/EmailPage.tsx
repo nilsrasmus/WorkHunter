@@ -30,7 +30,7 @@ export function EmailPage() {
 
   useEffect(() => {
     const load = async () => {
-      if (!applicationId || !settings) return;
+      if (!applicationId || !settings || !profile) return;
       setLoading(true);
       try {
         const data = await api.getApplication(Number(applicationId));
@@ -67,6 +67,7 @@ export function EmailPage() {
           setBody(data.application.email_body);
         } else if (hasAiApiKey(settings)) {
           const generated = await generateEmailBody(
+            profile.id,
             settings,
             data.raw_json,
             employer,
@@ -82,7 +83,7 @@ export function EmailPage() {
       }
     };
     load();
-  }, [applicationId, settings]);
+  }, [applicationId, settings, profile]);
 
   const createDraft = async () => {
     if (!profile || !settings || !applicationId) return;

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readFile, readTextFile } from "@tauri-apps/plugin-fs";
 import { IconFileText, IconUpload } from "@tabler/icons-react";
 import { BusyModal } from "./BusyModal";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -11,11 +10,8 @@ import { hasAiApiKey } from "../lib/ai";
 import { canTailorFormat, isBinaryLegacyFormat, isEditableTextFormat, versionDisplayName } from "../lib/files";
 import { documentHtmlFromVersion } from "../lib/documentUtils";
 import { ensureSlotIds } from "../lib/contentSlots";
-import {
-  base64ToBytes,
-  bytesToHtml,
-  detectImportKind,
-} from "../lib/importDocument";
+import { detectImportKind } from "../lib/importDocument";
+import { ensureVersionHtml, importPathToHtml } from "../lib/ensureEditableHtml";
 import { templatesForDocType, type DocumentTemplateId, getTemplate } from "../lib/documentTemplates";
 import { useI18n } from "../lib/i18n";
 import type { MessageKey } from "../lib/i18n";
@@ -61,10 +57,11 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
 
   const importOptsFor = useCallback(
     async (docType: "resume" | "letter") => ({
+      profileId: profile?.id,
       settings: await resolveImportSettings(),
       docType,
     }),
-    [resolveImportSettings],
+    [resolveImportSettings, profile?.id],
   );
 
   const tabVersions = versions.filter((v) => v.doc_type === tab);
@@ -121,15 +118,10 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
       try {
         const opts = await importOptsFor(v.doc_type);
         setConvertingWithAi(!!(opts.settings && hasAiApiKey(opts.settings)));
-        const payload = await api.getRoleDocumentFileBase64(v.id);
-        const kind = detectImportKind(payload.file_name ?? `file.${v.format}`)
-          ?? (v.format === "pdf" ? "pdf" : "docx");
-        const htmlResult = await bytesToHtml(base64ToBytes(payload.data_base64), kind, opts);
-        const html = htmlResult.html;
-        if (htmlResult.aiError) setAiErrorDetail(htmlResult.aiError);
-        const updated = await api.convertRoleDocumentToHtml(v.id, html);
-        setVersions((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
-        setContent(html);
+        const ensured = await ensureVersionHtml(v, opts);
+        if (ensured.aiError) setAiErrorDetail(ensured.aiError);
+        setVersions((prev) => prev.map((row) => (row.id === ensured.version.id ? ensured.version : row)));
+        setContent(ensured.html);
         onChanged?.();
       } catch (e) {
         setError(String(e));
@@ -200,17 +192,7 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
       setConvertingWithAi(!!(opts.settings && hasAiApiKey(opts.settings)));
       const baseName =
         file.split(/[/\\]/).pop()?.replace(/\.(pdf|docx|md|txt)$/i, "") ?? "Imported";
-      let imported;
-      if (kind === "markdown" || kind === "txt") {
-        const text = await readTextFile(file);
-        imported = await bytesToHtml(new TextEncoder().encode(text), kind, {
-          ...opts,
-          textFallback: text,
-        });
-      } else {
-        const bytes = await readFile(file);
-        imported = await bytesToHtml(Uint8Array.from(bytes), kind, opts);
-      }
+      const imported = await importPathToHtml(file, opts);
       const html = imported.html;
       if (imported.aiError) setAiErrorDetail(imported.aiError);
       if (!html.replace(/<[^>]+>/g, "").trim()) {

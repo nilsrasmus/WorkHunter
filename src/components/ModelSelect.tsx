@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconRefresh } from "@tabler/icons-react";
 import {
-  listAnthropicModels,
-  listGeminiModels,
+  listAiModels,
   pickDefaultModel,
   type AiModelOption,
 } from "../lib/ai-models";
@@ -10,12 +9,19 @@ import { useI18n } from "../lib/i18n";
 
 interface Props {
   provider: "gemini" | "anthropic";
-  apiKey: string;
+  profileId: number;
+  keyConfigured: boolean;
   value: string;
   onChange: (modelId: string) => void;
 }
 
-export function ModelSelect({ provider, apiKey, value, onChange }: Props) {
+export function ModelSelect({
+  provider,
+  profileId,
+  keyConfigured,
+  value,
+  onChange,
+}: Props) {
   const { t } = useI18n();
   const [models, setModels] = useState<AiModelOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -24,7 +30,7 @@ export function ModelSelect({ provider, apiKey, value, onChange }: Props) {
   onChangeRef.current = onChange;
 
   const load = useCallback(async () => {
-    if (!apiKey.trim()) {
+    if (!keyConfigured) {
       setModels([]);
       setError(t("settings.model.enterKey"));
       return;
@@ -32,10 +38,7 @@ export function ModelSelect({ provider, apiKey, value, onChange }: Props) {
     setLoading(true);
     setError("");
     try {
-      const list =
-        provider === "anthropic"
-          ? await listAnthropicModels(apiKey)
-          : await listGeminiModels(apiKey);
+      const list = await listAiModels(profileId, provider);
       setModels(list);
       if (list.length === 0) {
         setError(t("settings.model.noModels"));
@@ -47,7 +50,7 @@ export function ModelSelect({ provider, apiKey, value, onChange }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [apiKey, provider, t]);
+  }, [keyConfigured, profileId, provider, t]);
 
   useEffect(() => {
     void load();
@@ -81,7 +84,7 @@ export function ModelSelect({ provider, apiKey, value, onChange }: Props) {
           type="button"
           className="btn btn-secondary btn-icon-square"
           onClick={() => void load()}
-          disabled={loading || !apiKey.trim()}
+          disabled={loading || !keyConfigured}
           title={t("settings.model.refresh")}
           aria-label={t("settings.model.refresh")}
         >

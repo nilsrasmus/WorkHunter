@@ -1,4 +1,5 @@
 use crate::db::{self, DbState};
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -50,6 +51,58 @@ fn row_to_decision(row: &rusqlite::Row) -> rusqlite::Result<AdDecision> {
 
 const DECISION_SELECT: &str =
     "SELECT id, profile_id, job_ad_id, role_id, status, decided_at, resume_version_id, letter_version_id, tailor_resume, tailor_letter, application_method";
+
+fn require_owned_role(conn: &rusqlite::Connection, role_id: i64) -> Result<i64, String> {
+    let active = db::require_active_profile(conn)?;
+    let owner: Option<i64> = conn
+        .query_row(
+            "SELECT profile_id FROM roles WHERE id = ?1",
+            [role_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    if owner != Some(active) {
+        return Err("Not found".into());
+    }
+    Ok(active)
+}
+
+fn require_version_for_role(
+    conn: &rusqlite::Connection,
+    version_id: i64,
+    role_id: i64,
+) -> Result<(), String> {
+    let active = db::require_active_profile(conn)?;
+    let version_role: Option<(i64, i64)> = conn
+        .query_row(
+            "SELECT v.role_id, r.profile_id FROM role_document_versions v JOIN roles r ON r.id = v.role_id WHERE v.id = ?1",
+            [version_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    if version_role != Some((role_id, active)) {
+        return Err("Not found".into());
+    }
+    Ok(())
+}
+
+fn require_owned_decision(conn: &rusqlite::Connection, decision_id: i64) -> Result<i64, String> {
+    let active = db::require_active_profile(conn)?;
+    let owner: Option<i64> = conn
+        .query_row(
+            "SELECT profile_id FROM ad_decisions WHERE id = ?1",
+            [decision_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    if owner != Some(active) {
+        return Err("Not found".into());
+    }
+    Ok(active)
+}
 
 fn first_application_contact<'a>(ad: &'a serde_json::Value) -> Option<&'a serde_json::Value> {
     let contacts = ad.get("application_contacts")?;
@@ -189,13 +242,20 @@ pub fn reject_ad(
     role_id: i64,
     ad_json: String,
 ) -> Result<(), String> {
+    crate::limits::check_byte_len(
+        &ad_json,
+        crate::limits::MAX_JOB_AD_JSON_BYTES,
+        "Job ad JSON",
+    )?;
     let ad: serde_json::Value = serde_json::from_str(&ad_json).map_err(|e| e.to_string())?;
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let job_ad_id = upsert_job_ad(&conn, profile_id, &ad).map_err(|e| e.to_string())?;
+    let active = db::ensure_active_profile(&conn, profile_id)?;
+    require_owned_role(&conn, role_id)?;
+    let job_ad_id = upsert_job_ad(&conn, active, &ad).map_err(|e| e.to_string())?;
     let now = db::now_iso();
     conn.execute(
         "INSERT INTO ad_decisions (profile_id, job_ad_id, role_id, status, decided_at) VALUES (?1, ?2, ?3, 'rejected', ?4)",
-        rusqlite::params![profile_id, job_ad_id, role_id, now],
+        rusqlite::params![active, job_ad_id, role_id, now],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -212,8 +272,21 @@ pub fn proceed_ad(
     tailor_resume: bool,
     tailor_letter: bool,
 ) -> Result<AdDecision, String> {
+    crate::limits::check_byte_len(
+        &ad_json,
+        crate::limits::MAX_JOB_AD_JSON_BYTES,
+        "Job ad JSON",
+    )?;
     let ad: serde_json::Value = serde_json::from_str(&ad_json).map_err(|e| e.to_string())?;
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let active = db::ensure_active_profile(&conn, profile_id)?;
+    require_owned_role(&conn, role_id)?;
+    if let Some(version_id) = resume_version_id {
+        require_version_for_role(&conn, version_id, role_id)?;
+    }
+    if let Some(version_id) = letter_version_id {
+        require_version_for_role(&conn, version_id, role_id)?;
+    }
 
     let resume_vid = resume_version_id.or_else(|| {
         crate::commands::roles::default_version_id(&conn, role_id, "resume")
@@ -229,14 +302,14 @@ pub fn proceed_ad(
     // Binary pdf/docx versions are converted to HTML on the Review page before tailoring.
     let application_method = detect_application_method(&ad);
 
-    let job_ad_id = upsert_job_ad(&conn, profile_id, &ad).map_err(|e| e.to_string())?;
+    let job_ad_id = upsert_job_ad(&conn, active, &ad).map_err(|e| e.to_string())?;
     let now = db::now_iso();
     conn.execute(
         "INSERT INTO ad_decisions (profile_id, job_ad_id, role_id, status, decided_at,
          resume_version_id, letter_version_id, tailor_resume, tailor_letter, application_method)
          VALUES (?1, ?2, ?3, 'in_progress', ?4, ?5, ?6, ?7, ?8, ?9)",
         rusqlite::params![
-            profile_id,
+            active,
             job_ad_id,
             role_id,
             now,
@@ -267,6 +340,7 @@ pub fn get_decision_with_ad(
     decision_id: i64,
 ) -> Result<(AdDecision, JobAdRecord), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    require_owned_decision(&conn, decision_id)?;
     let decision = get_decision_by_id(&conn, decision_id)?;
     let ad = conn
         .query_row(
@@ -293,17 +367,3 @@ pub fn get_decision_with_ad(
     Ok((decision, ad))
 }
 
-#[tauri::command]
-pub fn update_decision_status(
-    state: State<DbState>,
-    decision_id: i64,
-    status: String,
-) -> Result<(), String> {
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE ad_decisions SET status = ?1 WHERE id = ?2",
-        rusqlite::params![status, decision_id],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}

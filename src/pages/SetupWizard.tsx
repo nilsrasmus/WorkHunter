@@ -104,6 +104,7 @@ export function SetupWizard() {
     setError("");
     try {
       const imported = await importPathToHtml(file, {
+        profileId: profile?.id,
         settings,
         docType,
       });

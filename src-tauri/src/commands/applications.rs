@@ -1,5 +1,4 @@
 use crate::commands::attachments::resolve_attachment;
-use crate::commands::roles::DocumentFilePayload;
 use crate::commands::settings::get_export_dir_for_profile;
 use crate::db::{self, DbState};
 use rusqlite::OptionalExtension;
@@ -80,6 +79,41 @@ const APP_SELECT: &str = "SELECT id, profile_id, ad_decision_id, tailored_resume
     approved_at, sent_at, created_at, resume_format, letter_format, resume_file_name, letter_file_name,
     application_method, export_path, apply_notes";
 
+fn require_owned_application(
+    conn: &rusqlite::Connection,
+    application_id: i64,
+) -> Result<i64, String> {
+    let active = db::require_active_profile(conn)?;
+    let owner: Option<i64> = conn
+        .query_row(
+            "SELECT profile_id FROM applications WHERE id = ?1",
+            [application_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    if owner != Some(active) {
+        return Err("Not found".into());
+    }
+    Ok(active)
+}
+
+fn require_owned_decision(conn: &rusqlite::Connection, decision_id: i64) -> Result<i64, String> {
+    let active = db::require_active_profile(conn)?;
+    let owner: Option<i64> = conn
+        .query_row(
+            "SELECT profile_id FROM ad_decisions WHERE id = ?1",
+            [decision_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    if owner != Some(active) {
+        return Err("Not found".into());
+    }
+    Ok(active)
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SaveApplicationRequest {
     pub profile_id: i64,
@@ -99,7 +133,21 @@ pub fn save_application(
     state: State<DbState>,
     req: SaveApplicationRequest,
 ) -> Result<Application, String> {
+    crate::limits::require_document_html(&req.tailored_resume_html)?;
+    crate::limits::require_document_html(&req.tailored_letter_html)?;
+    crate::limits::check_byte_len(
+        &req.tailored_resume_md,
+        crate::limits::MAX_DOCUMENT_HTML_BYTES,
+        "Resume markdown",
+    )?;
+    crate::limits::check_byte_len(
+        &req.tailored_letter_md,
+        crate::limits::MAX_DOCUMENT_HTML_BYTES,
+        "Letter markdown",
+    )?;
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let active = db::ensure_active_profile(&conn, req.profile_id)?;
+    require_owned_decision(&conn, req.ad_decision_id)?;
     let now = db::now_iso();
 
     // Attachments are always generated from HTML/markdown — never from stored binary blobs.
@@ -156,7 +204,7 @@ pub fn save_application(
          application_method, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         rusqlite::params![
-            req.profile_id,
+            active,
             req.ad_decision_id,
             req.tailored_resume_md,
             req.tailored_letter_md,
@@ -191,6 +239,7 @@ pub fn get_application(
     application_id: i64,
 ) -> Result<ApplicationWithMeta, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    require_owned_application(&conn, application_id)?;
     let app = get_application_by_id(&conn, application_id)?;
     let meta = conn
         .query_row(
@@ -229,6 +278,7 @@ pub fn get_application_by_decision(
     decision_id: i64,
 ) -> Result<Option<Application>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    require_owned_decision(&conn, decision_id)?;
     let result = conn.query_row(
         "SELECT id FROM applications WHERE ad_decision_id = ?1",
         [decision_id],
@@ -255,7 +305,27 @@ pub fn approve_application(
     tailored_resume_html: String,
     tailored_letter_html: String,
 ) -> Result<(), String> {
+    crate::limits::check_char_len(
+        &email_subject,
+        crate::limits::MAX_EMAIL_SUBJECT_CHARS,
+        "Email subject",
+    )?;
+    crate::limits::check_char_len(
+        &email_body,
+        crate::limits::MAX_EMAIL_BODY_CHARS,
+        "Email body",
+    )?;
+    for (value, field) in [
+        (&email_to, "Email to"),
+        (&email_cc, "Email cc"),
+        (&email_bcc, "Email bcc"),
+    ] {
+        crate::limits::check_char_len(value, crate::limits::MAX_EMAIL_ADDRESS_CHARS, field)?;
+    }
+    crate::limits::require_document_html(&tailored_resume_html)?;
+    crate::limits::require_document_html(&tailored_letter_html)?;
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    require_owned_application(&conn, application_id)?;
     let now = db::now_iso();
     conn.execute(
         "UPDATE applications SET email_subject = ?1, email_body = ?2, email_to = ?3, email_cc = ?4,
@@ -293,11 +363,9 @@ pub fn approve_application(
 }
 
 #[tauri::command]
-pub fn mark_application_sent(
-    state: State<DbState>,
-    application_id: i64,
-) -> Result<(), String> {
+pub fn mark_application_sent(state: State<DbState>, application_id: i64) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    require_owned_application(&conn, application_id)?;
     let now = db::now_iso();
     conn.execute(
         "UPDATE applications SET sent_at = ?1 WHERE id = ?2",
@@ -326,6 +394,7 @@ pub fn set_gmail_draft_id(
     draft_id: String,
 ) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    require_owned_application(&conn, application_id)?;
     conn.execute(
         "UPDATE applications SET gmail_draft_id = ?1 WHERE id = ?2",
         rusqlite::params![draft_id, application_id],
@@ -382,6 +451,7 @@ pub fn search_archive(
     query: String,
 ) -> Result<Vec<ApplicationWithMeta>, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let active = db::ensure_active_profile(&conn, profile_id)?;
     let apps: Vec<Application> = if query.trim().is_empty() {
         let mut stmt = conn
             .prepare(&format!(
@@ -390,9 +460,10 @@ pub fn search_archive(
             ))
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map([profile_id], row_to_application)
+            .query_map([active], row_to_application)
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
     } else {
         let mut stmt = conn
             .prepare(
@@ -413,9 +484,10 @@ pub fn search_archive(
             .collect::<Vec<_>>()
             .join(" OR ");
         let rows = stmt
-            .query_map(rusqlite::params![profile_id, fts_query], row_to_application)
+            .query_map(rusqlite::params![active, fts_query], row_to_application)
             .map_err(|e| e.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?
     };
 
     let mut results = Vec::new();
@@ -448,82 +520,6 @@ pub fn search_archive(
         });
     }
     Ok(results)
-}
-
-#[tauri::command]
-pub fn list_in_progress(
-    state: State<DbState>,
-    profile_id: i64,
-) -> Result<Vec<(i64, String, String)>, String> {
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT d.id, j.headline, j.employer_name
-             FROM ad_decisions d
-             JOIN job_ads j ON j.id = d.job_ad_id
-             WHERE d.profile_id = ?1 AND d.status IN ('in_progress', 'approved')
-             ORDER BY d.decided_at DESC",
-        )
-        .map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map([profile_id], |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-            ))
-        })
-        .map_err(|e| e.to_string())?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_application_file_base64(
-    state: State<DbState>,
-    application_id: i64,
-    doc_type: String,
-) -> Result<DocumentFilePayload, String> {
-    let conn = state.conn.lock().map_err(|e| e.to_string())?;
-    let (resume_md, letter_md, resume_html, letter_html, resume_fmt, letter_fmt, resume_name, letter_name, _resume_blob, _letter_blob) =
-        get_application_attachments(&conn, application_id)?;
-
-    let (format, file_name, md_content, html_content) = if doc_type == "resume" {
-        (resume_fmt, resume_name, resume_md, resume_html)
-    } else if doc_type == "letter" {
-        (letter_fmt, letter_name, letter_md, letter_html)
-    } else {
-        return Err("doc_type must be 'resume' or 'letter'".into());
-    };
-
-    if format == "markdown" || format == "html" {
-        let profile_id: i64 = conn
-            .query_row(
-                "SELECT profile_id FROM applications WHERE id = ?1",
-                [application_id],
-                |r| r.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        let font_css = crate::commands::fonts::build_custom_fonts_css(profile_id).unwrap_or_default();
-        let attachment = resolve_attachment(
-            &format,
-            &file_name,
-            &md_content,
-            &html_content,
-            None,
-            &font_css,
-        )?;
-        let data_base64 = attachment.content_b64();
-        return Ok(DocumentFilePayload {
-            format: "pdf".into(),
-            file_name: Some(attachment.file_name),
-            data_base64,
-        });
-    }
-
-    Err(
-        "Binary PDF/DOCX application documents are no longer supported. Re-open the role document to convert it to editable HTML."
-            .into(),
-    )
 }
 
 fn sanitize_folder_name(value: &str) -> String {
@@ -565,9 +561,21 @@ pub fn export_application_package(
     application_id: i64,
 ) -> Result<ExportPackageResult, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let active = db::ensure_active_profile(&conn, profile_id)?;
+    require_owned_application(&conn, application_id)?;
 
-    let (resume_md, letter_md, resume_html, letter_html, resume_fmt, letter_fmt, resume_name, letter_name, resume_blob, letter_blob) =
-        get_application_attachments(&conn, application_id)?;
+    let (
+        resume_md,
+        letter_md,
+        resume_html,
+        letter_html,
+        resume_fmt,
+        letter_fmt,
+        resume_name,
+        letter_name,
+        resume_blob,
+        letter_blob,
+    ) = get_application_attachments(&conn, application_id)?;
 
     let (headline, employer_name, af_ad_id, raw_json, decision_id): (
         String,
@@ -595,7 +603,7 @@ pub fn export_application_package(
         )
         .map_err(|e| e.to_string())?;
 
-    let font_css = crate::commands::fonts::build_custom_fonts_css(profile_id).unwrap_or_default();
+    let font_css = crate::commands::fonts::build_custom_fonts_css(active).unwrap_or_default();
     let resume = resolve_attachment(
         &resume_fmt,
         &resume_name,
@@ -613,14 +621,15 @@ pub fn export_application_package(
         &font_css,
     )?;
 
-    let export_root = PathBuf::from(get_export_dir_for_profile(&conn, profile_id)?);
+    let export_root = PathBuf::from(get_export_dir_for_profile(&conn, active)?);
     fs::create_dir_all(&export_root).map_err(|e| format!("Failed to create export folder: {e}"))?;
 
     let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let employer = employer_name.unwrap_or_else(|| "Unknown employer".into());
     let folder_name = sanitize_folder_name(&format!("{date} - {employer} - {headline}"));
     let export_dir = unique_export_dir(&export_root, &folder_name);
-    fs::create_dir_all(&export_dir).map_err(|e| format!("Failed to create application folder: {e}"))?;
+    fs::create_dir_all(&export_dir)
+        .map_err(|e| format!("Failed to create application folder: {e}"))?;
 
     fs::write(export_dir.join(&resume.file_name), &resume.bytes)
         .map_err(|e| format!("Failed to write resume: {e}"))?;
@@ -678,7 +687,13 @@ pub fn save_apply_notes(
     application_id: i64,
     apply_notes: String,
 ) -> Result<(), String> {
+    crate::limits::check_char_len(
+        &apply_notes,
+        crate::limits::MAX_APPLY_NOTES_CHARS,
+        "Apply notes",
+    )?;
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    require_owned_application(&conn, application_id)?;
     conn.execute(
         "UPDATE applications SET apply_notes = ?1 WHERE id = ?2",
         rusqlite::params![apply_notes, application_id],

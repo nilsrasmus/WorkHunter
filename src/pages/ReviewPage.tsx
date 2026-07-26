@@ -108,8 +108,14 @@ export function ReviewPage() {
           return;
         }
 
-        const resumeEnsured = await ensureVersionHtml(resumeRaw, { settings });
-        const letterEnsured = await ensureVersionHtml(letterRaw, { settings });
+        const resumeEnsured = await ensureVersionHtml(resumeRaw, {
+          profileId: profile.id,
+          settings,
+        });
+        const letterEnsured = await ensureVersionHtml(letterRaw, {
+          profileId: profile.id,
+          settings,
+        });
         const resumeVersion = resumeEnsured.version;
         const letterVersion = letterEnsured.version;
         const importAiError = resumeEnsured.aiError || letterEnsured.aiError;
@@ -149,6 +155,7 @@ export function ReviewPage() {
           };
           const roleData = await api.getRole(d.role_id);
           const result = await tailorDocuments(
+            profile.id,
             settings,
             roleData.role.name,
             resumeContent,
@@ -202,8 +209,14 @@ export function ReviewPage() {
         : null;
       if (!resumeRaw || !letterRaw) return;
 
-      const resumeEnsured = await ensureVersionHtml(resumeRaw, { settings });
-      const letterEnsured = await ensureVersionHtml(letterRaw, { settings });
+      const resumeEnsured = await ensureVersionHtml(resumeRaw, {
+        profileId: profile.id,
+        settings,
+      });
+      const letterEnsured = await ensureVersionHtml(letterRaw, {
+        profileId: profile.id,
+        settings,
+      });
       const resumeVersion = resumeEnsured.version;
       const letterVersion = letterEnsured.version;
       const importAiError = resumeEnsured.aiError || letterEnsured.aiError;
@@ -217,6 +230,7 @@ export function ReviewPage() {
       };
       const roleData = await api.getRole(decision.role_id);
       const result = await tailorDocuments(
+        profile.id,
         settings,
         roleData.role.name,
         resumeEnsured.html,

@@ -1,4 +1,4 @@
-use crate::db::DbState;
+use crate::db::{self, DbState};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -71,20 +71,24 @@ fn mime_for_format(format: &str) -> &'static str {
 
 #[tauri::command]
 pub fn list_custom_fonts(
-    _state: State<DbState>,
+    state: State<DbState>,
     profile_id: i64,
 ) -> Result<Vec<CustomFont>, String> {
-    read_manifest(profile_id)
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let active = db::ensure_active_profile(&conn, profile_id)?;
+    read_manifest(active)
 }
 
 #[tauri::command]
 pub fn add_custom_font(
-    _state: State<DbState>,
+    state: State<DbState>,
     profile_id: i64,
     family: String,
     file_name: String,
     file_base64: String,
 ) -> Result<CustomFont, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let active = db::ensure_active_profile(&conn, profile_id)?;
     let family = family.trim().to_string();
     if family.is_empty() {
         return Err("Font family name is required".into());
@@ -101,13 +105,9 @@ pub fn add_custom_font(
     }
 
     let id = Uuid::new_v4().to_string();
-    let ext = file_name
-        .rsplit('.')
-        .next()
-        .unwrap_or("ttf")
-        .to_lowercase();
+    let ext = file_name.rsplit('.').next().unwrap_or("ttf").to_lowercase();
     let stored_name = format!("{id}.{ext}");
-    let dir = profile_fonts_dir(profile_id)?;
+    let dir = profile_fonts_dir(active)?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     fs::write(dir.join(&stored_name), &bytes).map_err(|e| e.to_string())?;
 
@@ -117,36 +117,18 @@ pub fn add_custom_font(
         file_name: stored_name,
         format,
     };
-    let mut fonts = read_manifest(profile_id)?;
+    let mut fonts = read_manifest(active)?;
     fonts.push(font.clone());
-    write_manifest(profile_id, &fonts)?;
+    write_manifest(active, &fonts)?;
     Ok(font)
-}
-
-#[tauri::command]
-pub fn delete_custom_font(
-    _state: State<DbState>,
-    profile_id: i64,
-    font_id: String,
-) -> Result<(), String> {
-    let mut fonts = read_manifest(profile_id)?;
-    let Some(idx) = fonts.iter().position(|f| f.id == font_id) else {
-        return Err("Font not found".into());
-    };
-    let removed = fonts.remove(idx);
-    let path = profile_fonts_dir(profile_id)?.join(&removed.file_name);
-    let _ = fs::remove_file(path);
-    write_manifest(profile_id, &fonts)?;
-    Ok(())
 }
 
 /// Build @font-face CSS with base64 data URLs for editor + PDF embedding.
 #[tauri::command]
-pub fn get_custom_fonts_css(
-    _state: State<DbState>,
-    profile_id: i64,
-) -> Result<String, String> {
-    build_custom_fonts_css(profile_id)
+pub fn get_custom_fonts_css(state: State<DbState>, profile_id: i64) -> Result<String, String> {
+    let conn = state.conn.lock().map_err(|e| e.to_string())?;
+    let active = db::ensure_active_profile(&conn, profile_id)?;
+    build_custom_fonts_css(active)
 }
 
 pub fn build_custom_fonts_css(profile_id: i64) -> Result<String, String> {

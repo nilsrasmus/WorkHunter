@@ -53,9 +53,13 @@ export type AppTheme = "light" | "dark";
 
 export interface ProfileSettings {
   ai_provider: AiProvider;
+  /** New key to save; never returned from the backend. */
   gemini_api_key: string;
+  gemini_api_key_set: boolean;
   gemini_model: string;
+  /** New key to save; never returned from the backend. */
   anthropic_api_key: string;
+  anthropic_api_key_set: boolean;
   anthropic_model: string;
   test_mode: boolean;
   test_email: string;

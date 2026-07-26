@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { parseApplicationWithMeta } from "./applications";
+import { sanitizeDocumentHtml } from "./sanitizeHtml";
 import type {
   AdDecision,
   Application,
@@ -29,8 +30,6 @@ export const api = {
     invoke<Role>("create_role", { profileId, name }),
   updateRoleName: (roleId: number, name: string) =>
     invoke<void>("update_role_name", { roleId, name }),
-  updateRoleDocument: (roleId: number, docType: string, contentMd: string) =>
-    invoke<void>("update_role_document", { roleId, docType, contentMd }),
   deleteRole: (roleId: number) => invoke<void>("delete_role", { roleId }),
   saveRoleTailorPrompt: (roleId: number, prompt: string) =>
     invoke<Role>("save_role_tailor_prompt", { roleId, prompt }),
@@ -41,20 +40,6 @@ export const api = {
     invoke<RoleDocumentVersion[]>("list_role_document_versions", { roleId, docType }),
   getRoleDocumentVersion: (versionId: number) =>
     invoke<RoleDocumentVersion>("get_role_document_version", { versionId }),
-  createRoleDocumentMarkdown: (
-    roleId: number,
-    docType: "resume" | "letter",
-    name: string,
-    contentMd: string,
-    setDefault: boolean,
-  ) =>
-    invoke<RoleDocumentVersion>("create_role_document_markdown", {
-      roleId,
-      docType,
-      name,
-      contentMd,
-      setDefault,
-    }),
   createRoleDocumentHtml: (
     roleId: number,
     docType: "resume" | "letter",
@@ -66,15 +51,19 @@ export const api = {
       roleId,
       docType,
       name,
-      contentHtml,
+      contentHtml: sanitizeDocumentHtml(contentHtml),
       setDefault,
     }),
-  updateRoleDocumentMarkdown: (versionId: number, contentMd: string) =>
-    invoke<RoleDocumentVersion>("update_role_document_markdown", { versionId, contentMd }),
   updateRoleDocumentHtml: (versionId: number, contentHtml: string) =>
-    invoke<RoleDocumentVersion>("update_role_document_html", { versionId, contentHtml }),
+    invoke<RoleDocumentVersion>("update_role_document_html", {
+      versionId,
+      contentHtml: sanitizeDocumentHtml(contentHtml),
+    }),
   convertRoleDocumentToHtml: (versionId: number, contentHtml: string) =>
-    invoke<RoleDocumentVersion>("convert_role_document_to_html", { versionId, contentHtml }),
+    invoke<RoleDocumentVersion>("convert_role_document_to_html", {
+      versionId,
+      contentHtml: sanitizeDocumentHtml(contentHtml),
+    }),
   generateHtmlPdfBase64: (html: string, fontCss?: string) =>
     invoke<string>("generate_html_pdf_base64", { html, fontCss: fontCss ?? null }),
   listCustomFonts: (profileId: number) =>
@@ -91,8 +80,6 @@ export const api = {
       fileName,
       fileBase64,
     }),
-  deleteCustomFont: (profileId: number, fontId: string) =>
-    invoke<void>("delete_custom_font", { profileId, fontId }),
   getCustomFontsCss: (profileId: number) =>
     invoke<string>("get_custom_fonts_css", { profileId }),
   getRoleDocumentFileBase64: (versionId: number) =>
@@ -124,10 +111,6 @@ export const api = {
     }),
   jobsearchGetAd: (adId: string) =>
     invoke<Record<string, unknown>>("jobsearch_get_ad", { adId }),
-  jobsearchComplete: (q: string, limit?: number) =>
-    invoke<unknown>("jobsearch_complete", { q, limit }),
-  taxonomySearch: (query: string, taxonomyType?: string) =>
-    invoke<unknown>("taxonomy_search", { query, taxonomyType }),
   taxonomyListConcepts: (
     conceptType: string,
     query?: string,
@@ -260,8 +243,6 @@ export const api = {
     );
     return results.map(parseApplicationWithMeta);
   },
-  listInProgress: (profileId: number) =>
-    invoke<[number, string, string][]>("list_in_progress", { profileId }),
 
   createGmailDraft: (req: {
     profile_id: number;

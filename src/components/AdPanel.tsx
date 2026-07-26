@@ -1,6 +1,7 @@
 import type { JobAdHit } from "../types";
 import { getPrimaryContact } from "../lib/applicationMethod";
 import { useI18n } from "../lib/i18n";
+import { safeHttpUrl } from "../lib/safeUrl";
 
 interface Props {
   ad: JobAdHit | Record<string, unknown>;
@@ -32,7 +33,7 @@ export function AdPanel({ ad }: Props) {
     (get(a, "description.text_formatted") as string) ??
     "";
   const appEmail = get(a, "application_details.email") as string | undefined;
-  const appUrl = get(a, "application_details.url") as string | undefined;
+  const appUrl = safeHttpUrl(get(a, "application_details.url") as string | undefined);
   const primaryContact = getPrimaryContact(a);
   const contact = primaryContact?.name;
   const contactEmail = primaryContact?.email;

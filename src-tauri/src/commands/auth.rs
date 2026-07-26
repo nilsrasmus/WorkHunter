@@ -1,6 +1,8 @@
 use crate::commands::profiles::{get_oauth_tokens, update_oauth_tokens, upsert_profile, Profile};
 use crate::db::DbState;
+use base64::Engine;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 
@@ -24,6 +26,11 @@ struct GoogleUserInfo {
     picture: Option<String>,
 }
 
+struct PkcePair {
+    verifier: String,
+    challenge: String,
+}
+
 fn google_client_id() -> Result<String, String> {
     std::env::var("GOOGLE_CLIENT_ID").map_err(|_| "GOOGLE_CLIENT_ID not set in .env".into())
 }
@@ -33,19 +40,38 @@ fn google_client_secret() -> Result<String, String> {
         .map_err(|_| "GOOGLE_CLIENT_SECRET not set in .env".into())
 }
 
-fn auth_url() -> Result<String, String> {
+fn random_urlsafe(nbytes: usize) -> String {
+    let mut bytes = vec![0u8; nbytes];
+    rand::fill(bytes.as_mut_slice());
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn generate_pkce() -> PkcePair {
+    let verifier = random_urlsafe(32);
+    let mut hasher = Sha256::new();
+    hasher.update(verifier.as_bytes());
+    let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(hasher.finalize());
+    PkcePair {
+        verifier,
+        challenge,
+    }
+}
+
+fn auth_url(state: &str, code_challenge: &str) -> Result<String, String> {
     let client_id = google_client_id()?;
     let redirect = format!("http://127.0.0.1:{REDIRECT_PORT}{REDIRECT_PATH}");
     let scope = urlencoding::encode(
         "openid email profile https://www.googleapis.com/auth/gmail.compose",
     );
     Ok(format!(
-        "https://accounts.google.com/o/oauth2/v2/auth?client_id={client_id}&redirect_uri={}&response_type=code&scope={scope}&access_type=offline&prompt=consent",
-        urlencoding::encode(&redirect)
+        "https://accounts.google.com/o/oauth2/v2/auth?client_id={client_id}&redirect_uri={}&response_type=code&scope={scope}&access_type=offline&prompt=consent&state={}&code_challenge={}&code_challenge_method=S256",
+        urlencoding::encode(&redirect),
+        urlencoding::encode(state),
+        urlencoding::encode(code_challenge),
     ))
 }
 
-async fn exchange_code(code: &str) -> Result<OAuthTokens, String> {
+async fn exchange_code(code: &str, code_verifier: &str) -> Result<OAuthTokens, String> {
     let client_id = google_client_id()?;
     let client_secret = google_client_secret()?;
     let redirect = format!("http://127.0.0.1:{REDIRECT_PORT}{REDIRECT_PATH}");
@@ -58,6 +84,7 @@ async fn exchange_code(code: &str) -> Result<OAuthTokens, String> {
             ("client_secret", &client_secret),
             ("redirect_uri", &redirect),
             ("grant_type", "authorization_code"),
+            ("code_verifier", code_verifier),
         ])
         .send()
         .await
@@ -125,7 +152,11 @@ pub async fn get_valid_access_token(state: &DbState, profile_id: i64) -> Result<
 #[tauri::command]
 pub async fn start_google_auth(app: AppHandle, state: State<'_, DbState>) -> Result<Profile, String> {
     let _ = dotenvy::dotenv();
-    let url = auth_url()?;
+    let expected_state = random_urlsafe(32);
+    let pkce = generate_pkce();
+    let url = auth_url(&expected_state, &pkce.challenge)?;
+    let expected_state_cb = expected_state.clone();
+    let code_verifier = pkce.verifier.clone();
 
     let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
 
@@ -139,10 +170,18 @@ pub async fn start_google_auth(app: AppHandle, state: State<'_, DbState>) -> Res
         };
 
         // Browsers may hit the callback more than once (favicon, prefetch, etc.).
-        // Keep listening until we receive a request that contains a non-empty code.
         loop {
             match server.recv() {
                 Ok(request) => {
+                    if !request.url().starts_with(REDIRECT_PATH) {
+                        let _ = request.respond(tiny_http::Response::empty(404));
+                        continue;
+                    }
+                    if !matches!(request.method(), tiny_http::Method::Get) {
+                        let _ = request.respond(tiny_http::Response::empty(405));
+                        continue;
+                    }
+
                     let url = request.url();
                     if let Some(err) = extract_oauth_error(url) {
                         let _ = request.respond(oauth_response_html(
@@ -153,17 +192,35 @@ pub async fn start_google_auth(app: AppHandle, state: State<'_, DbState>) -> Res
                         return;
                     }
 
-                    if let Some(code) = extract_oauth_code(url) {
+                    let Some(code) = extract_oauth_code(url) else {
+                        let _ = request.respond(tiny_http::Response::empty(404));
+                        continue;
+                    };
+
+                    let Some(state_param) = extract_oauth_state(url) else {
                         let _ = request.respond(oauth_response_html(
-                            "Login successful!",
-                            "You can close this window and return to WorkHunter.",
+                            "Login failed",
+                            "Missing OAuth state parameter.",
                         ));
-                        let _ = tx.send(Ok(code));
+                        let _ = tx.send(Err("Missing OAuth state parameter".into()));
+                        return;
+                    };
+
+                    if state_param != expected_state_cb {
+                        let _ = request.respond(oauth_response_html(
+                            "Login failed",
+                            "Invalid OAuth state parameter.",
+                        ));
+                        let _ = tx.send(Err("Invalid OAuth state parameter".into()));
                         return;
                     }
 
-                    // Ignore unrelated requests (e.g. favicon.ico).
-                    let _ = request.respond(tiny_http::Response::empty(404));
+                    let _ = request.respond(oauth_response_html(
+                        "Login successful!",
+                        "You can close this window and return to WorkHunter.",
+                    ));
+                    let _ = tx.send(Ok(code));
+                    return;
                 }
                 Err(e) => {
                     let _ = tx.send(Err(format!("OAuth request error: {e}")));
@@ -181,7 +238,7 @@ pub async fn start_google_auth(app: AppHandle, state: State<'_, DbState>) -> Res
     if code.is_empty() {
         return Err("No authorization code received from Google".into());
     }
-    let tokens = exchange_code(&code).await?;
+    let tokens = exchange_code(&code, &code_verifier).await?;
     let user = fetch_user_info(&tokens.access_token).await?;
     let tokens_json = serde_json::to_string(&tokens).map_err(|e| e.to_string())?;
 
@@ -215,9 +272,19 @@ pub async fn start_google_auth(app: AppHandle, state: State<'_, DbState>) -> Res
     Ok(profile)
 }
 
+pub(crate) fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 fn oauth_response_html(title: &str, message: &str) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
     let body = format!(
-        "<html><body><h2>{title}</h2><p>{message}</p></body></html>"
+        "<html><body><h2>{}</h2><p>{}</p></body></html>",
+        html_escape(title),
+        html_escape(message)
     );
     tiny_http::Response::from_string(body).with_header(
         tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html"[..]).unwrap(),
@@ -249,18 +316,43 @@ fn query_param(query: &str, name: &str) -> Option<String> {
     None
 }
 
-fn extract_oauth_code(url: &str) -> Option<String> {
+pub(crate) fn extract_oauth_code(url: &str) -> Option<String> {
     let query = query_string(url)?;
-    for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
-        if key == "code" && !value.is_empty() {
-            return Some(value.into_owned());
-        }
-    }
-    None
+    query_param(query, "code").filter(|c| !c.is_empty())
+}
+
+pub(crate) fn extract_oauth_state(url: &str) -> Option<String> {
+    let query = query_string(url)?;
+    query_param(query, "state").filter(|s| !s.is_empty())
 }
 
 mod urlencoding {
     pub fn encode(s: &str) -> String {
         url::form_urlencoded::byte_serialize(s.as_bytes()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_code_and_state() {
+        let url = "/oauth/callback?code=abc123&state=xyz";
+        assert_eq!(extract_oauth_code(url).as_deref(), Some("abc123"));
+        assert_eq!(extract_oauth_state(url).as_deref(), Some("xyz"));
+    }
+
+    #[test]
+    fn rejects_empty_code() {
+        assert!(extract_oauth_code("/oauth/callback?code=&state=x").is_none());
+    }
+
+    #[test]
+    fn html_escape_encodes_specials() {
+        assert_eq!(
+            html_escape(r#"<script>"&'"#),
+            "&lt;script&gt;&quot;&amp;&#39;"
+        );
     }
 }

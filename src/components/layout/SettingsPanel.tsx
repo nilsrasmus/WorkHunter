@@ -25,10 +25,13 @@ export function SettingsPanel({ open, onClose }: Props) {
     if (settings) {
       setForm({
         ...settings,
+        gemini_api_key: "",
+        anthropic_api_key: "",
         language: settings.language ?? "sv",
         theme: settings.theme ?? "light",
         applications_export_dir: settings.applications_export_dir ?? "",
       });
+      setShowApiKey(false);
     }
   }, [settings, open]);
 
@@ -115,6 +118,11 @@ export function SettingsPanel({ open, onClose }: Props) {
                     <input
                       type={showApiKey ? "text" : "password"}
                       value={form.anthropic_api_key}
+                      placeholder={
+                        form.anthropic_api_key_set
+                          ? t("settings.apiKey.savedPlaceholder")
+                          : undefined
+                      }
                       onChange={(e) =>
                         setForm({ ...form, anthropic_api_key: e.target.value })
                       }
@@ -129,12 +137,28 @@ export function SettingsPanel({ open, onClose }: Props) {
                       {showApiKey ? <IconEyeOff size={16} /> : <IconEye size={16} />}
                     </button>
                   </div>
+                  {form.anthropic_api_key_set && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          anthropic_api_key: "",
+                          anthropic_api_key_set: false,
+                        })
+                      }
+                    >
+                      {t("settings.apiKey.clear")}
+                    </button>
+                  )}
                 </label>
                 <label>
                   {t("settings.model")}
                   <ModelSelect
                     provider="anthropic"
-                    apiKey={form.anthropic_api_key}
+                    profileId={profile.id}
+                    keyConfigured={form.anthropic_api_key_set}
                     value={form.anthropic_model}
                     onChange={(anthropic_model) =>
                       setForm({ ...form, anthropic_model })
@@ -150,6 +174,11 @@ export function SettingsPanel({ open, onClose }: Props) {
                     <input
                       type={showApiKey ? "text" : "password"}
                       value={form.gemini_api_key}
+                      placeholder={
+                        form.gemini_api_key_set
+                          ? t("settings.apiKey.savedPlaceholder")
+                          : undefined
+                      }
                       onChange={(e) =>
                         setForm({ ...form, gemini_api_key: e.target.value })
                       }
@@ -164,12 +193,28 @@ export function SettingsPanel({ open, onClose }: Props) {
                       {showApiKey ? <IconEyeOff size={16} /> : <IconEye size={16} />}
                     </button>
                   </div>
+                  {form.gemini_api_key_set && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          gemini_api_key: "",
+                          gemini_api_key_set: false,
+                        })
+                      }
+                    >
+                      {t("settings.apiKey.clear")}
+                    </button>
+                  )}
                 </label>
                 <label>
                   {t("settings.model")}
                   <ModelSelect
                     provider="gemini"
-                    apiKey={form.gemini_api_key}
+                    profileId={profile.id}
+                    keyConfigured={form.gemini_api_key_set}
                     value={form.gemini_model}
                     onChange={(gemini_model) => setForm({ ...form, gemini_model })}
                   />

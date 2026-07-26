@@ -1,5 +1,6 @@
 import { marked } from "marked";
 import { ensureSlotIds } from "./contentSlots";
+import { sanitizeDocumentHtml } from "./sanitizeHtml";
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -7,7 +8,7 @@ marked.setOptions({ breaks: true, gfm: true });
 export function markdownToHtml(markdown: string): string {
   if (!markdown.trim()) return ensureSlotIds("<p></p>");
   const raw = marked.parse(markdown, { async: false }) as string;
-  return ensureSlotIds(raw);
+  return ensureSlotIds(sanitizeDocumentHtml(raw));
 }
 
 /** Migrate legacy markdown document content to slotted HTML. */
@@ -31,10 +32,6 @@ export function documentHtmlFromVersion(version: {
     return migrateMarkdownDocument(version.content_md);
   }
   return "";
-}
-
-export function isTextDocumentFormat(format: string): boolean {
-  return format === "markdown" || format === "html";
 }
 
 export function defaultPdfFileName(docType: "resume" | "letter", _format?: string): string {

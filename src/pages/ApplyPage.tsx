@@ -10,6 +10,7 @@ import {
 } from "../lib/applicationMethod";
 import { revealExportFolder } from "../lib/openExportFolder";
 import { useI18n } from "../lib/i18n";
+import { safeHttpUrl } from "../lib/safeUrl";
 import { useSession } from "../context/SessionContext";
 import type { ApplicationMethod } from "../types";
 
@@ -39,7 +40,7 @@ export function ApplyPage() {
         const method = data.application.application_method
           ?? detectApplicationMethod(ad);
         setApplicationMethod(method);
-        setApplyUrl(getApplicationUrl(ad));
+        setApplyUrl(safeHttpUrl(getApplicationUrl(ad)));
         setExportPath(data.application.export_path ?? null);
         setNotes(data.application.apply_notes ?? "");
       } catch (e) {
@@ -65,8 +66,9 @@ export function ApplyPage() {
       const result = await api.exportApplicationPackage(profile.id, Number(applicationId));
       setExportPath(result.export_path);
       await revealExportFolder(result.export_path);
-      if (applyUrl) {
-        await openUrl(applyUrl);
+      const url = safeHttpUrl(applyUrl);
+      if (url) {
+        await openUrl(url);
       }
     } catch (e) {
       setError(String(e));
@@ -81,8 +83,9 @@ export function ApplyPage() {
   };
 
   const openApplicationPage = async () => {
-    if (!applyUrl) return;
-    await openUrl(applyUrl);
+    const url = safeHttpUrl(applyUrl);
+    if (!url) return;
+    await openUrl(url);
   };
 
   const markApplied = async () => {

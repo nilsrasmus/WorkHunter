@@ -193,6 +193,21 @@ pub fn active_profile_id(conn: &Connection) -> Result<Option<i64>> {
     Ok(None)
 }
 
+/// Active profile for the local session. Commands must not trust a caller-supplied id alone.
+pub fn require_active_profile(conn: &Connection) -> std::result::Result<i64, String> {
+    active_profile_id(conn)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No active profile".into())
+}
+
+pub fn ensure_active_profile(conn: &Connection, profile_id: i64) -> std::result::Result<i64, String> {
+    let active = require_active_profile(conn)?;
+    if active != profile_id {
+        return Err("Profile does not match the active session".into());
+    }
+    Ok(active)
+}
+
 pub fn set_active_profile_id(conn: &Connection, id: i64) -> Result<()> {
     conn.execute(
         "INSERT INTO app_state (key, value) VALUES ('active_profile_id', ?1)
@@ -205,4 +220,37 @@ pub fn set_active_profile_id(conn: &Connection, id: i64) -> Result<()> {
 pub fn clear_active_profile(conn: &Connection) -> Result<()> {
     conn.execute("DELETE FROM app_state WHERE key = 'active_profile_id'", [])?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    fn memory_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE app_state (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn require_active_profile_errors_when_missing() {
+        let conn = memory_db();
+        assert!(require_active_profile(&conn).is_err());
+    }
+
+    #[test]
+    fn ensure_active_profile_rejects_mismatch() {
+        let conn = memory_db();
+        set_active_profile_id(&conn, 7).unwrap();
+        assert_eq!(require_active_profile(&conn).unwrap(), 7);
+        assert!(ensure_active_profile(&conn, 7).is_ok());
+        assert!(ensure_active_profile(&conn, 8).is_err());
+    }
 }

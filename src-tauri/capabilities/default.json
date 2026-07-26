@@ -9,12 +9,22 @@
     {
       "identifier": "opener:allow-open-path",
       "allow": [
-        { "path": "$DOCUMENT/WorkHunter/**" },
-        { "path": "$HOME/**" }
+        { "path": "$DOCUMENT/WorkHunter/**" }
       ]
     },
     "dialog:default",
-    "fs:default",
-    "shell:default"
+    "fs:allow-read-file",
+    "fs:allow-read-text-file",
+    "fs:allow-exists",
+    "fs:allow-stat",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$DESKTOP/**" }
+      ]
+    }
   ]
 }

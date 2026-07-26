@@ -9,11 +9,13 @@ import {
 } from "./ai";
 import { ensureSlotIds } from "./contentSlots";
 import { markdownToHtml } from "./documentUtils";
+import { sanitizeDocumentHtml } from "./sanitizeHtml";
 import type { ProfileSettings } from "../types";
 
 GlobalWorkerOptions.workerSrc = pdfWorker;
 
 export interface ImportOptions {
+  profileId?: number;
   settings?: ProfileSettings | null;
   docType?: "resume" | "letter";
   /** Prefer AI design when an API key is configured (default true). */
@@ -35,18 +37,7 @@ function formatCaughtError(e: unknown): string {
 }
 
 function sanitizeImportedHtml(html: string): string {
-  const doc = new DOMParser().parseFromString(html || "<p></p>", "text/html");
-  doc.querySelectorAll("script, iframe, object, embed, link, meta").forEach((el) => el.remove());
-  doc.querySelectorAll("*").forEach((el) => {
-    for (const attr of [...el.attributes]) {
-      const name = attr.name.toLowerCase();
-      if (name.startsWith("on") || name === "srcdoc") {
-        el.removeAttribute(attr.name);
-      }
-    }
-  });
-  const body = doc.body.innerHTML.trim();
-  return body || "<p></p>";
+  return sanitizeDocumentHtml(html);
 }
 
 function escapeHtml(text: string): string {
@@ -88,11 +79,17 @@ async function maybePolishWithAi(
   options: ImportOptions,
 ): Promise<HtmlImportResult> {
   const useAi = options.useAi !== false;
-  if (!useAi || !options.settings || !hasAiApiKey(options.settings)) {
+  if (
+    !useAi ||
+    !options.profileId ||
+    !options.settings ||
+    !hasAiApiKey(options.settings)
+  ) {
     return { html };
   }
   try {
     const polished = await polishDocumentHtml(
+      options.profileId,
       options.settings,
       html,
       options.docType ?? "resume",
@@ -316,11 +313,17 @@ export async function pdfToHtml(
   options: ImportOptions = {},
 ): Promise<HtmlImportResult> {
   const useAi = options.useAi !== false;
-  if (useAi && options.settings && hasAiApiKey(options.settings)) {
+  if (
+    useAi &&
+    options.profileId &&
+    options.settings &&
+    hasAiApiKey(options.settings)
+  ) {
     try {
       const images = await pdfPagesToImages(bytes);
       if (images.length > 0) {
         const designed = await reconstructDocumentHtmlFromImages(
+          options.profileId,
           options.settings,
           images,
           options.docType ?? "resume",

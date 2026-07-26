@@ -2,17 +2,57 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Strip remote http(s) URLs from attributes/CSS so print Chromium stays offline.
+fn strip_remote_resources(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(idx) = rest.find(['h', 'H']) {
+        out.push_str(&rest[..idx]);
+        let candidate = &rest[idx..];
+        let lower = candidate.to_ascii_lowercase();
+        let scheme_len = if lower.starts_with("https://") {
+            Some(8)
+        } else if lower.starts_with("http://") {
+            Some(7)
+        } else {
+            None
+        };
+        if let Some(scheme_len) = scheme_len {
+            let after = &candidate[scheme_len..];
+            let end = after
+                .find(|c: char| {
+                    c.is_whitespace()
+                        || c == '"'
+                        || c == '\''
+                        || c == ')'
+                        || c == '>'
+                        || c == '<'
+                })
+                .unwrap_or(after.len());
+            rest = &after[end..];
+            continue;
+        }
+        let ch = candidate.chars().next().unwrap_or('h');
+        out.push(ch);
+        rest = &rest[idx + ch.len_utf8()..];
+    }
+    out.push_str(rest);
+    out
+}
+
 pub fn wrap_html_for_print(body: &str, font_css: &str) -> String {
     let fonts = if font_css.trim().is_empty() {
         String::new()
     } else {
-        format!("\n{font_css}\n")
+        format!("\n{}\n", strip_remote_resources(font_css))
     };
+    let safe_body = strip_remote_resources(body);
     format!(
         r#"<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:;">
 <style>
 @page {{ size: A4; margin: 20mm; }}
 {fonts}body {{
@@ -32,7 +72,7 @@ hr {{ border: none; border-top: 1px solid #CDD1D6; margin: 12pt 0; }}
 blockquote {{ margin: 0 0 8pt; padding-left: 12pt; border-left: 3px solid #CDD1D6; }}
 </style>
 </head>
-<body>{body}</body>
+<body>{safe_body}</body>
 </html>"#
     )
 }
@@ -104,6 +144,8 @@ pub fn html_to_pdf_bytes(html: &str, font_css: &str) -> Result<Vec<u8>, String> 
         .args([
             "--headless=new",
             "--disable-gpu",
+            "--disable-extensions",
+            "--disable-background-networking",
             "--no-pdf-header-footer",
             &format!("--print-to-pdf={}", pdf_path.display()),
             &html_url,
@@ -144,6 +186,10 @@ pub fn html_to_pdf_base64(html: &str, font_css: &str) -> Result<String, String> 
 
 #[tauri::command]
 pub fn generate_html_pdf_base64(html: String, font_css: Option<String>) -> Result<String, String> {
+    crate::limits::require_document_html(&html)?;
+    if let Some(css) = font_css.as_deref() {
+        crate::limits::check_byte_len(css, crate::limits::MAX_DOCUMENT_HTML_BYTES, "Font CSS")?;
+    }
     html_to_pdf_base64(&html, font_css.as_deref().unwrap_or(""))
 }
 
@@ -162,5 +208,21 @@ mod tests {
     fn wrap_html_includes_fonts() {
         let wrapped = wrap_html_for_print("<p>Hi</p>", "@font-face { font-family: X; }");
         assert!(wrapped.contains("@font-face"));
+    }
+
+    #[test]
+    fn strip_remote_removes_http_urls() {
+        let html = r#"<img src="https://evil.test/x.png"><p>ok</p><div style="background:url('http://evil.test/a')"></div>"#;
+        let cleaned = strip_remote_resources(html);
+        assert!(!cleaned.contains("https://"));
+        assert!(!cleaned.contains("http://"));
+        assert!(cleaned.contains("<p>ok</p>"));
+    }
+
+    #[test]
+    fn wrap_html_embeds_csp_and_strips_remote() {
+        let wrapped = wrap_html_for_print(r#"<img src="https://evil.test/a">"#, "");
+        assert!(wrapped.contains("Content-Security-Policy"));
+        assert!(!wrapped.contains("https://evil.test"));
     }
 }

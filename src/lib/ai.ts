@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import type { AiProvider, ProfileSettings } from "../types";
 import {
   extractContentSlots,
@@ -15,16 +16,9 @@ const TAILOR_FACTUAL_GUARDRAILS = `CRITICAL — Factual accuracy (non-negotiable
 - Never inflate, exaggerate, round up, or boast. If the base says 10 years, the output must say 10 years — not 20, not "two decades", not "extensive experience" unless that exact wording appears in the base documents.
 - Every quantitative claim must be copied faithfully from the base resume or base personal letter.`;
 
-/** Balanced creativity vs. factual adherence for generation calls. */
-const AI_TEMPERATURE = 0.5;
-
-/** Anthropic no longer accepts `temperature` on some models — approximate 0.5 via wording. */
-const ANTHROPIC_VARIATION_GUIDANCE = `Aim for a natural, moderate level of variation in your wording and phrasing —
-not the single most predictable option every time, but not deliberately
-unusual either.`;
-
 interface AiGenerateRequest {
   settings: ProfileSettings;
+  profileId: number;
   /** Instructions / rules — sent as system prompt. */
   systemPrompt: string;
   /** Job data and documents — sent as user message only. */
@@ -42,226 +36,48 @@ export interface VisionImage {
   base64: string;
 }
 
-interface GeminiCacheEntry {
-  name: string;
-  expiresAt: number;
-}
-
-const geminiCacheStore = new Map<string, GeminiCacheEntry>();
-
-function normalizeGeminiModelId(model: string): string {
-  return model.startsWith("models/") ? model.slice("models/".length) : model;
-}
-
-function geminiCacheKey(model: string, systemPrompt: string): string {
-  return `${model}::${systemPrompt}`;
-}
-
 function getProvider(settings: ProfileSettings): AiProvider {
   return settings.ai_provider === "anthropic" ? "anthropic" : "gemini";
 }
 
 export function hasAiApiKey(settings: ProfileSettings): boolean {
   if (getProvider(settings) === "anthropic") {
-    return settings.anthropic_api_key.trim().length > 0;
+    return settings.anthropic_api_key_set;
   }
-  return settings.gemini_api_key.trim().length > 0;
+  return settings.gemini_api_key_set;
 }
 
 export function getAiProviderLabel(settings: ProfileSettings): string {
   return getProvider(settings) === "anthropic" ? "Anthropic" : "Gemini";
 }
 
-function extractGeminiText(data: {
-  candidates?: { content?: { parts?: { text?: string }[] } }[];
-}): string {
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini did not return text content");
-  return text.trim();
-}
-
-function geminiGenerationConfig(
-  responseJson: boolean | undefined,
-  maxOutputTokens?: number,
-) {
-  return {
-    temperature: AI_TEMPERATURE,
-    ...(maxOutputTokens ? { maxOutputTokens } : {}),
-    ...(responseJson ? { responseMimeType: "application/json" as const } : {}),
-  };
-}
-
-async function getOrCreateGeminiCache(
-  apiKey: string,
-  model: string,
-  systemPrompt: string,
-): Promise<string | null> {
-  const key = geminiCacheKey(model, systemPrompt);
-  const existing = geminiCacheStore.get(key);
-  if (existing && existing.expiresAt > Date.now() + 60_000) {
-    return existing.name;
-  }
-
-  const modelResource = `models/${normalizeGeminiModelId(model)}`;
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/cachedContents?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: modelResource,
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: "user", parts: [{ text: "(cached system instructions)" }] }],
-          ttl: "3600s",
-        }),
-      },
-    );
-    if (!res.ok) return null;
-
-    const data = (await res.json()) as { name?: string };
-    if (!data.name) return null;
-
-    geminiCacheStore.set(key, {
-      name: data.name,
-      expiresAt: Date.now() + 50 * 60 * 1000,
-    });
-    return data.name;
-  } catch {
-    return null;
-  }
-}
-
-async function generateWithGemini({
-  settings,
-  systemPrompt,
-  userPrompt,
-  responseJson,
-  images,
-  maxOutputTokens,
-}: AiGenerateRequest): Promise<string> {
-  const apiKey = settings.gemini_api_key;
-  const model = normalizeGeminiModelId(settings.gemini_model);
-  const generationConfig = geminiGenerationConfig(responseJson, maxOutputTokens);
-  const userParts: Record<string, unknown>[] = [];
-  for (const image of images ?? []) {
-    userParts.push({
-      inline_data: {
-        mime_type: image.mimeType,
-        data: image.base64,
-      },
-    });
-  }
-  userParts.push({ text: userPrompt });
-
-  // Cached content path only supports text user prompts — skip cache when sending images.
-  if (!images?.length) {
-    const cacheName = await getOrCreateGeminiCache(apiKey, model, systemPrompt);
-    if (cacheName) {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            cachedContent: cacheName,
-            contents: [{ role: "user", parts: userParts }],
-            generationConfig,
-          }),
-        },
-      );
-      if (res.ok) {
-        return extractGeminiText(await res.json());
-      }
-    }
-  }
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ role: "user", parts: userParts }],
-        generationConfig,
-      }),
-    },
-  );
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini API error (${res.status}): ${err}`);
-  }
-  return extractGeminiText(await res.json());
-}
-
-async function generateWithAnthropic({
-  settings,
-  systemPrompt,
-  userPrompt,
-  images,
-  maxOutputTokens,
-}: AiGenerateRequest): Promise<string> {
-  const content: Record<string, unknown>[] = [];
-  for (const image of images ?? []) {
-    content.push({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: image.mimeType,
-        data: image.base64,
-      },
-    });
-  }
-  const userText = `${ANTHROPIC_VARIATION_GUIDANCE}\n\n${userPrompt}`;
-  content.push({ type: "text", text: userText });
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": settings.anthropic_api_key,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: settings.anthropic_model,
-      max_tokens: maxOutputTokens ?? 16384,
-      system: [
-        {
-          type: "text",
-          text: systemPrompt,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      messages: [{ role: "user", content }],
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Anthropic API error (${res.status}): ${err}`);
-  }
-  const data = (await res.json()) as {
-    content?: { type: string; text?: string }[];
-  };
-  const block = data.content?.find((b) => b.type === "text");
-  if (!block?.text) {
-    throw new Error("Anthropic did not return text content");
-  }
-  return block.text.trim();
-}
-
 async function generateText(request: AiGenerateRequest): Promise<string> {
-  if (getProvider(request.settings) === "anthropic") {
-    if (!request.settings.anthropic_api_key.trim()) {
-      throw new Error("Anthropic API key not configured. Open Settings to add it.");
-    }
-    return generateWithAnthropic(request);
+  const provider = getProvider(request.settings);
+  if (!hasAiApiKey(request.settings)) {
+    throw new Error(
+      `${getAiProviderLabel(request.settings)} API key not configured. Open Settings to add it.`,
+    );
   }
-  if (!request.settings.gemini_api_key.trim()) {
-    throw new Error("Gemini API key not configured. Open Settings to add it.");
-  }
-  return generateWithGemini(request);
+  const model =
+    provider === "anthropic"
+      ? request.settings.anthropic_model
+      : request.settings.gemini_model;
+  const result = await invoke<{ text: string }>("ai_generate", {
+    req: {
+      profile_id: request.profileId,
+      provider,
+      model,
+      system_prompt: request.systemPrompt,
+      user_prompt: request.userPrompt,
+      response_json: request.responseJson ?? false,
+      images: (request.images ?? []).map((img) => ({
+        mime_type: img.mimeType,
+        base64: img.base64,
+      })),
+      max_output_tokens: request.maxOutputTokens ?? null,
+    },
+  });
+  return result.text.trim();
 }
 
 interface TailorOptions {
@@ -419,6 +235,7 @@ export function resolveTailorPrompt(
 }
 
 export async function tailorDocuments(
+  profileId: number,
   settings: ProfileSettings,
   roleName: string,
   baseResumeHtml: string,
@@ -463,6 +280,7 @@ export async function tailorDocuments(
 
   const text = await generateText({
     settings,
+    profileId,
     systemPrompt: `${tailorPrompt}\n\n${TAILOR_FACTUAL_GUARDRAILS}\n\n${TAILOR_SLOT_RULES}\n\n${outputRules}`,
     userPrompt: buildTailorUserPrompt(roleName, resumeSlots, letterSlots, adJson, options),
     responseJson: true,
@@ -498,6 +316,7 @@ export async function tailorDocuments(
 }
 
 export async function generateEmailBody(
+  profileId: number,
   settings: ProfileSettings,
   adJson: string,
   company: string,
@@ -514,6 +333,7 @@ export async function generateEmailBody(
 
   return generateText({
     settings,
+    profileId,
     systemPrompt: settings.prompt_email_note,
     userPrompt: buildEmailUserPrompt(
       filledTemplate,
@@ -619,12 +439,14 @@ function stripAiHtmlWrapper(text: string): string {
 
 /** Second pass: add data-wh-slot attributes (text-only, no images). */
 async function tagDocumentHtmlSlots(
+  profileId: number,
   settings: ProfileSettings,
   html: string,
 ): Promise<string> {
   try {
     const raw = await generateText({
       settings,
+      profileId,
       systemPrompt: DOCUMENT_SLOT_SYSTEM,
       userPrompt: html,
       maxOutputTokens: 16384,
@@ -642,6 +464,7 @@ async function tagDocumentHtmlSlots(
 
 /** Rebuild a designed HTML document from PDF page screenshots via vision AI. */
 export async function reconstructDocumentHtmlFromImages(
+  profileId: number,
   settings: ProfileSettings,
   images: VisionImage[],
   docType: "resume" | "letter" = "resume",
@@ -652,6 +475,7 @@ export async function reconstructDocumentHtmlFromImages(
   const kind = docType === "letter" ? "cover letter / personal letter" : "resume / CV";
   const raw = await generateText({
     settings,
+    profileId,
     systemPrompt: DOCUMENT_HTML_SYSTEM,
     userPrompt: `These screenshot(s) show my ${kind} (page order is top to bottom).`,
     images,
@@ -661,11 +485,12 @@ export async function reconstructDocumentHtmlFromImages(
   if (!html.replace(/<[^>]+>/g, "").trim()) {
     throw new Error("AI returned empty document HTML");
   }
-  return tagDocumentHtmlSlots(settings, html);
+  return tagDocumentHtmlSlots(profileId, settings, html);
 }
 
 /** Restyle an already-extracted HTML document into a polished application layout. */
 export async function polishDocumentHtml(
+  profileId: number,
   settings: ProfileSettings,
   html: string,
   docType: "resume" | "letter" = "resume",
@@ -673,6 +498,7 @@ export async function polishDocumentHtml(
   const kind = docType === "letter" ? "cover letter / personal letter" : "resume / CV";
   const raw = await generateText({
     settings,
+    profileId,
     systemPrompt: DOCUMENT_HTML_SYSTEM,
     userPrompt: `Here is a rough HTML ${kind} imported from a file.
 
@@ -684,10 +510,10 @@ ${html}`,
   if (!polished.replace(/<[^>]+>/g, "").trim()) {
     throw new Error("AI returned empty polished HTML");
   }
-  return tagDocumentHtmlSlots(settings, polished);
+  return tagDocumentHtmlSlots(profileId, settings, polished);
 }
 
-/** Clear in-memory Gemini caches when prompt templates change. */
+/** Kept for SettingsPanel call sites; AI keys now live in the Rust keyring. */
 export function clearGeminiPromptCache(): void {
-  geminiCacheStore.clear();
+  /* no-op: provider HTTP no longer runs in the renderer */
 }

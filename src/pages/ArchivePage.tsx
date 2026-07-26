@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { IconChevronRight, IconClock } from "@tabler/icons-react";
@@ -14,8 +14,9 @@ import {
 import { markdownToHtml } from "../lib/documentUtils";
 import { revealExportFolder } from "../lib/openExportFolder";
 import { useI18n } from "../lib/i18n";
+import { safeHttpUrl } from "../lib/safeUrl";
 import { useSession } from "../context/SessionContext";
-import type { ApplicationWithMeta } from "../types";
+import type { ApplicationMethod, ApplicationWithMeta } from "../types";
 
 function formatUrlForDisplay(url: string): string {
   return url.replace(/^https?:\/\//, "").replace(/\/$/, "");
@@ -27,25 +28,52 @@ function archiveDocHtml(html: string | undefined, md: string | undefined): strin
   return "<p></p>";
 }
 
+function parseAdJson(raw: string): Record<string, unknown> {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+type ArchiveItemView = ApplicationWithMeta & {
+  ad: Record<string, unknown>;
+  method: ApplicationMethod;
+};
+
+function toArchiveItemView(item: ApplicationWithMeta): ArchiveItemView {
+  const ad = parseAdJson(item.raw_json);
+  const method = item.application.application_method ?? detectApplicationMethod(ad);
+  return { ...item, ad, method };
+}
+
 export function ArchivePage() {
   const { profile } = useSession();
   const { t } = useI18n();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
-  const [items, setItems] = useState<ApplicationWithMeta[]>([]);
-  const [selected, setSelected] = useState<ApplicationWithMeta | null>(null);
+  const [items, setItems] = useState<ArchiveItemView[]>([]);
+  const [selected, setSelected] = useState<ArchiveItemView | null>(null);
   const [docTab, setDocTab] = useState<"resume" | "letter" | "email">("resume");
   const [retentionDays, setRetentionDays] = useState<number | null>(null);
+  const requestIdRef = useRef(0);
 
-  const search = useCallback(async () => {
+  const runSearch = useCallback(async (q: string) => {
     if (!profile) return;
-    const results = await api.searchArchive(profile.id, query);
-    setItems(results);
-  }, [profile, query]);
+    const requestId = ++requestIdRef.current;
+    const results = await api.searchArchive(profile.id, q);
+    if (requestId !== requestIdRef.current) return;
+    setItems(results.map(toArchiveItemView));
+  }, [profile]);
 
-  useEffect(() => { search(); }, [search]);
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      void runSearch(query);
+    }, 300);
+    return () => window.clearTimeout(handle);
+  }, [query, runSearch]);
 
-  const selectItem = async (item: ApplicationWithMeta) => {
+  const selectItem = async (item: ArchiveItemView) => {
     setSelected(item);
     setDocTab("resume");
     if (item.application.sent_at) {
@@ -56,15 +84,12 @@ export function ArchivePage() {
     }
   };
 
-  const selectedMethod = selected
-    ? (selected.application.application_method
-      ?? detectApplicationMethod(JSON.parse(selected.raw_json) as Record<string, unknown>))
-    : null;
-  const selectedUrl = selected
-    ? getApplicationUrl(JSON.parse(selected.raw_json) as Record<string, unknown>)
-    : null;
+  const selectedUrl = useMemo(
+    () => (selected ? safeHttpUrl(getApplicationUrl(selected.ad)) : null),
+    [selected],
+  );
   const hasDetailsSection = Boolean(
-    selectedMethod
+    selected?.method
     || selectedUrl
     || selected?.application.export_path
     || selected?.application.email_to
@@ -88,33 +113,29 @@ export function ArchivePage() {
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t("archive.searchPlaceholder")}
         />
-        <button type="button" className="btn btn-primary" onClick={search}>{t("common.search")}</button>
+        <button type="button" className="btn btn-primary" onClick={() => void runSearch(query)}>{t("common.search")}</button>
       </div>
 
       <div className="archive-layout">
         <div className="archive-list">
           {items.length === 0 && <p className="empty-state">{t("archive.empty")}</p>}
-          {items.map((item) => {
-            const method = item.application.application_method
-              ?? detectApplicationMethod(JSON.parse(item.raw_json) as Record<string, unknown>);
-            return (
-              <button
-                key={item.application.id}
-                type="button"
-                className={`archive-item ${selected?.application.id === item.application.id ? "active" : ""}`}
-                onClick={() => selectItem(item)}
-              >
-                <strong>{item.headline}</strong>
-                <span>{item.employer_name}</span>
-                <span className="archive-item-meta">
-                  <span className={`badge ${applicationMethodBadgeClass(method)}`}>
-                    {t(applicationMethodLabelKey(method) as never)}
-                  </span>
-                  <span>{item.application.sent_at ? new Date(item.application.sent_at).toLocaleDateString() : ""}</span>
+          {items.map((item) => (
+            <button
+              key={item.application.id}
+              type="button"
+              className={`archive-item ${selected?.application.id === item.application.id ? "active" : ""}`}
+              onClick={() => void selectItem(item)}
+            >
+              <strong>{item.headline}</strong>
+              <span>{item.employer_name}</span>
+              <span className="archive-item-meta">
+                <span className={`badge ${applicationMethodBadgeClass(item.method)}`}>
+                  {t(applicationMethodLabelKey(item.method) as never)}
                 </span>
-              </button>
-            );
-          })}
+                <span>{item.application.sent_at ? new Date(item.application.sent_at).toLocaleDateString() : ""}</span>
+              </span>
+            </button>
+          ))}
         </div>
 
         {selected && (
@@ -138,10 +159,10 @@ export function ArchivePage() {
                 <section className="archive-detail-section archive-detail-section--bordered">
                   <h3>{t("archive.section.details")}</h3>
                   <dl className="archive-details-list">
-                    {selectedMethod && (
+                    {selected.method && (
                       <>
                         <dt>{t("archive.method")}</dt>
-                        <dd>{t(applicationMethodLabelKey(selectedMethod) as never)}</dd>
+                        <dd>{t(applicationMethodLabelKey(selected.method) as never)}</dd>
                       </>
                     )}
                     {selectedUrl && (
@@ -207,7 +228,7 @@ export function ArchivePage() {
                   >
                     {t("archive.tab.letter")}
                   </button>
-                  {selectedMethod === "email" && (
+                  {selected.method === "email" && (
                     <button type="button" className={docTab === "email" ? "active" : ""}
                       onClick={() => setDocTab("email")}
                     >
@@ -239,7 +260,7 @@ export function ArchivePage() {
                       preview
                     />
                   )}
-                  {docTab === "email" && selectedMethod === "email" && (
+                  {docTab === "email" && selected.method === "email" && (
                     <pre className="email-body-preview">{selected.application.email_body}</pre>
                   )}
                 </div>
@@ -251,7 +272,7 @@ export function ArchivePage() {
                   {t("archive.section.jobAd")}
                 </summary>
                 <div className="filter-section-body archive-ad-body">
-                  <AdPanel ad={JSON.parse(selected.raw_json)} />
+                  <AdPanel ad={selected.ad} />
                   {selectedUrl && (
                     <button type="button" className="btn btn-secondary archive-ad-open-btn"
                       onClick={() => openUrl(selectedUrl)}
