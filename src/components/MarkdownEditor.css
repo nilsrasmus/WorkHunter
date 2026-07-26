@@ -210,9 +210,15 @@
   background: #ffffff;
 }
 
+/* Lock content to A4 printable width so wrapping (and page breaks) match PDF export. */
 .rich-editor-page .tiptap,
 .rich-editor-page .md-editor-content {
   flex: 1;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 170mm;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .page-break-guides {

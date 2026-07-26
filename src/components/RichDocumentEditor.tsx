@@ -181,8 +181,7 @@ export function RichDocumentEditor({
       setBreakYs([]);
       return;
     }
-    const width = prose.clientWidth;
-    const pageH = pageContentHeightPx(width);
+    const pageH = pageContentHeightPx();
     const offsets = pageBreakOffsets(prose.scrollHeight, pageH);
     setBreakYs(offsets);
   }, []);
