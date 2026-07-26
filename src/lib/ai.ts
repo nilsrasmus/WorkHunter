@@ -18,6 +18,11 @@ const TAILOR_FACTUAL_GUARDRAILS = `CRITICAL — Factual accuracy (non-negotiable
 /** Balanced creativity vs. factual adherence for generation calls. */
 const AI_TEMPERATURE = 0.5;
 
+/** Anthropic no longer accepts `temperature` on some models — approximate 0.5 via wording. */
+const ANTHROPIC_VARIATION_GUIDANCE = `Aim for a natural, moderate level of variation in your wording and phrasing —
+not the single most predictable option every time, but not deliberately
+unusual either.`;
+
 interface AiGenerateRequest {
   settings: ProfileSettings;
   /** Instructions / rules — sent as system prompt. */
@@ -26,6 +31,15 @@ interface AiGenerateRequest {
   userPrompt: string;
   /** When true: Gemini sets responseMimeType to application/json. */
   responseJson?: boolean;
+  /** Optional page screenshots for vision-based document reconstruction. */
+  images?: VisionImage[];
+  /** Cap for long HTML redesign responses (Gemini maxOutputTokens / Anthropic max_tokens). */
+  maxOutputTokens?: number;
+}
+
+export interface VisionImage {
+  mimeType: string;
+  base64: string;
 }
 
 interface GeminiCacheEntry {
@@ -66,9 +80,13 @@ function extractGeminiText(data: {
   return text.trim();
 }
 
-function geminiGenerationConfig(responseJson: boolean | undefined) {
+function geminiGenerationConfig(
+  responseJson: boolean | undefined,
+  maxOutputTokens?: number,
+) {
   return {
     temperature: AI_TEMPERATURE,
+    ...(maxOutputTokens ? { maxOutputTokens } : {}),
     ...(responseJson ? { responseMimeType: "application/json" as const } : {}),
   };
 }
@@ -119,27 +137,42 @@ async function generateWithGemini({
   systemPrompt,
   userPrompt,
   responseJson,
+  images,
+  maxOutputTokens,
 }: AiGenerateRequest): Promise<string> {
   const apiKey = settings.gemini_api_key;
   const model = normalizeGeminiModelId(settings.gemini_model);
-  const generationConfig = geminiGenerationConfig(responseJson);
-  const cacheName = await getOrCreateGeminiCache(apiKey, model, systemPrompt);
-
-  if (cacheName) {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cachedContent: cacheName,
-          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-          generationConfig,
-        }),
+  const generationConfig = geminiGenerationConfig(responseJson, maxOutputTokens);
+  const userParts: Record<string, unknown>[] = [];
+  for (const image of images ?? []) {
+    userParts.push({
+      inline_data: {
+        mime_type: image.mimeType,
+        data: image.base64,
       },
-    );
-    if (res.ok) {
-      return extractGeminiText(await res.json());
+    });
+  }
+  userParts.push({ text: userPrompt });
+
+  // Cached content path only supports text user prompts — skip cache when sending images.
+  if (!images?.length) {
+    const cacheName = await getOrCreateGeminiCache(apiKey, model, systemPrompt);
+    if (cacheName) {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cachedContent: cacheName,
+            contents: [{ role: "user", parts: userParts }],
+            generationConfig,
+          }),
+        },
+      );
+      if (res.ok) {
+        return extractGeminiText(await res.json());
+      }
     }
   }
 
@@ -150,7 +183,7 @@ async function generateWithGemini({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+        contents: [{ role: "user", parts: userParts }],
         generationConfig,
       }),
     },
@@ -166,7 +199,23 @@ async function generateWithAnthropic({
   settings,
   systemPrompt,
   userPrompt,
+  images,
+  maxOutputTokens,
 }: AiGenerateRequest): Promise<string> {
+  const content: Record<string, unknown>[] = [];
+  for (const image of images ?? []) {
+    content.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: image.mimeType,
+        data: image.base64,
+      },
+    });
+  }
+  const userText = `${ANTHROPIC_VARIATION_GUIDANCE}\n\n${userPrompt}`;
+  content.push({ type: "text", text: userText });
+
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -177,8 +226,7 @@ async function generateWithAnthropic({
     },
     body: JSON.stringify({
       model: settings.anthropic_model,
-      max_tokens: 16384,
-      temperature: AI_TEMPERATURE,
+      max_tokens: maxOutputTokens ?? 16384,
       system: [
         {
           type: "text",
@@ -186,7 +234,7 @@ async function generateWithAnthropic({
           cache_control: { type: "ephemeral" },
         },
       ],
-      messages: [{ role: "user", content: userPrompt }],
+      messages: [{ role: "user", content }],
     }),
   });
   if (!res.ok) {
@@ -490,6 +538,153 @@ function fillTemplate(
 
 export function buildEmailSubject(jobTitle: string, company: string): string {
   return `Ansökan: ${jobTitle}${company ? ` – ${company}` : ""}`;
+}
+
+const DOCUMENT_HTML_SYSTEM = `You are an expert resume/CV designer who converts scanned document images into
+richly styled HTML for a TipTap rich-text editor and Chromium print-to-PDF.
+
+PROCESS
+1. Study the image(s) for: overall layout (single column vs. two-column/sidebar),
+   font choices, heading sizes/weights, use of color, spacing between sections,
+   alignment patterns (e.g. title left / date right), dividers or borders.
+   - Note any text rendered in a color other than black/dark gray — a colored
+     name, colored section headings, accent-colored labels, links, etc. Identify
+     the approximate color (e.g. navy blue, burgundy, teal) for each.
+2. Reproduce that specific design as closely as possible. Do not default to a
+   generic plain layout if the source has clear formatting — match it.
+
+OUTPUT RULES
+- Return ONLY the HTML fragment. No <html>/<head>/<body>, no markdown, no
+  code fences, no commentary before or after.
+- Preserve all factual text exactly: names, dates, employers, titles, contact
+  info, bullet wording.
+- Use inline styles for every visual property: font-family, font-size (pt),
+  font-weight, color, margin, padding, border, text-align.
+- Layout tools are all allowed and often required — use flexbox freely for
+  row alignment (e.g. job title left / date range right), and simple block
+  divs for sections. Grid and position:absolute are the only things to avoid,
+  since they're the least reliable across TipTap + print-to-PDF.
+- Web-safe fonts (Georgia, Arial, "Times New Roman", system-ui) unless the
+  image clearly shows a distinct typeface.
+- White page background. Default body text is dark gray/black, but reproduce
+  any colored text exactly as it appears in the source — colored name/header,
+  colored section headings, accent-colored labels or links — using your best
+  approximation of that color as a hex value. Do not flatten colored elements
+  to black. Ignore uppercase/capitalization styling entirely; convert
+  ALL-CAPS text to normal sentence case regardless of how it appears in the
+  source.
+- No scripts, iframes, external stylesheets, or images.
+
+DEFAULT STYLE SPEC (use unless the image clearly shows something different)
+- Name: 22–26pt, bold.
+- Section headings: 11–13pt, bold, often with a bottom border.
+- Body text: 10–11pt, line-height ~1.4.
+- Job/education entries: a flex row with title+company bold on the left and
+  the date range smaller/lighter on the right, bullets below in a normal
+  <ul>.
+
+EXAMPLE OF THE FIDELITY EXPECTED
+If the source shows:
+  Senior Developer — Acme Corp                    Jan 2020 – Present
+  • Led a team of 5 engineers...
+
+Produce something like:
+<div style="margin-bottom:14px">
+  <div style="display:flex;justify-content:space-between;align-items:baseline">
+    <span style="font-size:11pt;font-weight:700">Senior Developer, Acme Corp</span>
+    <span style="font-size:9pt;color:#555555">Jan 2020 – Present</span>
+  </div>
+  <ul style="margin:4px 0 0 18px;padding:0">
+    <li style="font-size:10pt;margin-bottom:2px">Led a team of 5 engineers...</li>
+  </ul>
+</div>
+
+NOT a bare <p>Senior Developer, Acme Corp — Jan 2020 – Present</p> with no
+styling — that loses the alignment and hierarchy the source document has.`;
+
+const DOCUMENT_SLOT_SYSTEM = `Add a data-wh-slot="descriptive-id" attribute to every element containing
+editable resume content (name, title, summary, exp-1, exp-1-bullets, skills,
+etc.). Leave purely decorative elements (dividers, spacers, icons) without
+one. Return the full HTML with attributes added, structure and styling
+otherwise unchanged.`;
+
+function stripAiHtmlWrapper(text: string): string {
+  let cleaned = text.trim();
+  const fence = cleaned.match(/```(?:html)?\s*([\s\S]*?)```/i);
+  if (fence) cleaned = fence[1].trim();
+  cleaned = cleaned.replace(/^<html[^>]*>/i, "").replace(/<\/html>$/i, "");
+  cleaned = cleaned.replace(/^<body[^>]*>/i, "").replace(/<\/body>$/i, "");
+  return cleaned.trim();
+}
+
+/** Second pass: add data-wh-slot attributes (text-only, no images). */
+async function tagDocumentHtmlSlots(
+  settings: ProfileSettings,
+  html: string,
+): Promise<string> {
+  try {
+    const raw = await generateText({
+      settings,
+      systemPrompt: DOCUMENT_SLOT_SYSTEM,
+      userPrompt: html,
+      maxOutputTokens: 16384,
+    });
+    const tagged = stripAiHtmlWrapper(raw);
+    if (!tagged.replace(/<[^>]+>/g, "").trim()) {
+      return ensureSlotIds(html);
+    }
+    return ensureSlotIds(tagged);
+  } catch (e) {
+    console.warn("AI slot tagging failed; using ensureSlotIds fallback", e);
+    return ensureSlotIds(html);
+  }
+}
+
+/** Rebuild a designed HTML document from PDF page screenshots via vision AI. */
+export async function reconstructDocumentHtmlFromImages(
+  settings: ProfileSettings,
+  images: VisionImage[],
+  docType: "resume" | "letter" = "resume",
+): Promise<string> {
+  if (images.length === 0) {
+    throw new Error("No page images to reconstruct");
+  }
+  const kind = docType === "letter" ? "cover letter / personal letter" : "resume / CV";
+  const raw = await generateText({
+    settings,
+    systemPrompt: DOCUMENT_HTML_SYSTEM,
+    userPrompt: `These screenshot(s) show my ${kind} (page order is top to bottom).`,
+    images,
+    maxOutputTokens: 16384,
+  });
+  const html = stripAiHtmlWrapper(raw);
+  if (!html.replace(/<[^>]+>/g, "").trim()) {
+    throw new Error("AI returned empty document HTML");
+  }
+  return tagDocumentHtmlSlots(settings, html);
+}
+
+/** Restyle an already-extracted HTML document into a polished application layout. */
+export async function polishDocumentHtml(
+  settings: ProfileSettings,
+  html: string,
+  docType: "resume" | "letter" = "resume",
+): Promise<string> {
+  const kind = docType === "letter" ? "cover letter / personal letter" : "resume / CV";
+  const raw = await generateText({
+    settings,
+    systemPrompt: DOCUMENT_HTML_SYSTEM,
+    userPrompt: `Here is a rough HTML ${kind} imported from a file.
+
+SOURCE HTML:
+${html}`,
+    maxOutputTokens: 16384,
+  });
+  const polished = stripAiHtmlWrapper(raw);
+  if (!polished.replace(/<[^>]+>/g, "").trim()) {
+    throw new Error("AI returned empty polished HTML");
+  }
+  return tagDocumentHtmlSlots(settings, polished);
 }
 
 /** Clear in-memory Gemini caches when prompt templates change. */

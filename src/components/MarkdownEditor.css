@@ -76,7 +76,7 @@
   overflow-y: auto;
   padding: 1rem 1.15rem;
   outline: none;
-  line-height: 1.6;
+  line-height: 1.3 ;
   color: #12161a;
   font-size: 0.95rem;
   background: #ffffff;
@@ -103,7 +103,6 @@
   margin: 0.9em 0 0.4em;
   font-size: 1.55rem;
   line-height: 1.25;
-  color: #12161a;
 }
 
 .md-editor .tiptap h2,
@@ -111,7 +110,6 @@
   margin: 0.9em 0 0.4em;
   font-size: 1.25rem;
   line-height: 1.3;
-  color: #12161a;
 }
 
 .md-editor .tiptap h3,
@@ -119,7 +117,6 @@
   margin: 0.85em 0 0.35em;
   font-size: 1.05rem;
   line-height: 1.35;
-  color: #12161a;
 }
 
 .md-editor .tiptap ul,
@@ -140,7 +137,6 @@
   margin: 0.75em 0;
   padding: 0.15em 0 0.15em 0.9em;
   border-left: 3px solid #cdd1d6;
-  color: #5c6570;
 }
 
 .md-editor .tiptap code,

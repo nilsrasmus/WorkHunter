@@ -11,7 +11,6 @@ import Highlight from "@tiptap/extension-highlight";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { useDocPreviewHeight } from "../lib/layout";
-import { ensureSlotIds } from "../lib/contentSlots";
 import {
   ensureCustomFontsLoaded,
   familyCssValue,
@@ -21,9 +20,10 @@ import { pageBreakOffsets, pageContentHeightPx } from "../lib/pageBreaks";
 import { useSession } from "../context/SessionContext";
 import type { CustomFont } from "../types";
 import {
-  ContentSlotDiv,
   ContentSlotExtension,
   createSlotId,
+  PreserveBlockStyles,
+  StyledDiv,
 } from "../lib/editor/contentSlotExtension";
 import "./MarkdownEditor.css";
 
@@ -96,6 +96,8 @@ export function RichDocumentEditor({
   const [breakYs, setBreakYs] = useState<number[]>([]);
   const [scrollTop, setScrollTop] = useState(0);
   const shellRef = useRef<HTMLDivElement>(null);
+  /** Skip setContent when `value` is echoing our own onChange (prevents cursor jump). */
+  const lastEmittedHtml = useRef<string | null>(null);
 
   const fontOptions = useMemo(() => {
     const custom = customFonts.map((f) => ({
@@ -108,8 +110,9 @@ export function RichDocumentEditor({
   const extensions = useMemo(
     () => [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
-      ContentSlotDiv,
+      StyledDiv,
       ContentSlotExtension,
+      PreserveBlockStyles,
       TextStyle,
       FontSize,
       Color,
@@ -119,6 +122,14 @@ export function RichDocumentEditor({
       TextAlign.configure({ types: ["heading", "paragraph"] }),
     ],
     [],
+  );
+
+  const emitHtml = useCallback(
+    (html: string) => {
+      lastEmittedHtml.current = html;
+      onChange(html);
+    },
+    [onChange],
   );
 
   const editor = useEditor({
@@ -134,7 +145,8 @@ export function RichDocumentEditor({
     },
     onUpdate: ({ editor: current }) => {
       if (preview) return;
-      onChange(ensureSlotIds(current.getHTML()));
+      // Do not run ensureSlotIds here — it changes markup vs getHTML() and triggers setContent → cursor jump.
+      emitHtml(current.getHTML());
     },
   });
 
@@ -152,10 +164,13 @@ export function RichDocumentEditor({
 
   useEffect(() => {
     if (!editor) return;
+    if (lastEmittedHtml.current !== null && value === lastEmittedHtml.current) {
+      return;
+    }
     const next = value?.trim() ? value : "<p></p>";
-    const current = editor.getHTML();
-    if (next === current) return;
+    if (next === editor.getHTML()) return;
     editor.commands.setContent(next, { emitUpdate: false });
+    lastEmittedHtml.current = next;
   }, [editor, value]);
 
   const refreshPageBreaks = useCallback(() => {

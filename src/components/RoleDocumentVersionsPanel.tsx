@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { confirm, open } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
 import { readFile, readTextFile } from "@tauri-apps/plugin-fs";
+import { BusyModal } from "./BusyModal";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { RichDocumentEditor } from "./RichDocumentEditor";
+import { useSession } from "../context/SessionContext";
 import { api } from "../lib/api";
+import { hasAiApiKey } from "../lib/ai";
 import { canTailorFormat, isBinaryLegacyFormat, isEditableTextFormat, versionDisplayName } from "../lib/files";
-import { documentHtmlFromVersion, markdownToHtml } from "../lib/documentUtils";
+import { documentHtmlFromVersion } from "../lib/documentUtils";
+import { ensureSlotIds } from "../lib/contentSlots";
 import {
   base64ToBytes,
   bytesToHtml,
@@ -24,6 +29,7 @@ interface Props {
 
 export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
   const { t } = useI18n();
+  const { profile, settings } = useSession();
   const formatLabel = (format: string) => {
     const key = `format.${format}` as MessageKey;
     return t(key);
@@ -34,10 +40,31 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
   const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
   const [converting, setConverting] = useState(false);
+  const [convertingWithAi, setConvertingWithAi] = useState(false);
   const [newVersionName, setNewVersionName] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<DocumentTemplateId>("modern-resume");
   const [error, setError] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<RoleDocumentVersion | null>(null);
+  const [aiErrorDetail, setAiErrorDetail] = useState<string | null>(null);
   const convertingRef = useRef<number | null>(null);
+
+  const resolveImportSettings = useCallback(async () => {
+    if (settings && hasAiApiKey(settings)) return settings;
+    if (!profile) return settings;
+    try {
+      return await api.getSettings(profile.id);
+    } catch {
+      return settings;
+    }
+  }, [settings, profile]);
+
+  const importOptsFor = useCallback(
+    async (docType: "resume" | "letter") => ({
+      settings: await resolveImportSettings(),
+      docType,
+    }),
+    [resolveImportSettings],
+  );
 
   const tabVersions = versions.filter((v) => v.doc_type === tab);
   const selected = tabVersions.find((v) => v.id === selectedId) ?? null;
@@ -91,10 +118,14 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
     setError("");
     (async () => {
       try {
+        const opts = await importOptsFor(v.doc_type);
+        setConvertingWithAi(!!(opts.settings && hasAiApiKey(opts.settings)));
         const payload = await api.getRoleDocumentFileBase64(v.id);
         const kind = detectImportKind(payload.file_name ?? `file.${v.format}`)
           ?? (v.format === "pdf" ? "pdf" : "docx");
-        const html = await bytesToHtml(base64ToBytes(payload.data_base64), kind);
+        const htmlResult = await bytesToHtml(base64ToBytes(payload.data_base64), kind, opts);
+        const html = htmlResult.html;
+        if (htmlResult.aiError) setAiErrorDetail(htmlResult.aiError);
         const updated = await api.convertRoleDocumentToHtml(v.id, html);
         setVersions((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
         setContent(html);
@@ -105,16 +136,17 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
       } finally {
         convertingRef.current = null;
         setConverting(false);
+        setConvertingWithAi(false);
       }
     })();
-  }, [selectedId, tab, versions, onChanged]);
+  }, [selectedId, tab, versions, onChanged, importOptsFor]);
 
   const saveDocument = async () => {
     if (!selected || !isEditableTextFormat(selected.format)) return;
     setSaving(true);
     setError("");
     try {
-      const updated = await api.updateRoleDocumentHtml(selected.id, content);
+      const updated = await api.updateRoleDocumentHtml(selected.id, ensureSlotIds(content));
       setVersions((prev) => prev.map((v) => (v.id === selected.id ? updated : v)));
       onChanged?.();
     } catch (e) {
@@ -163,15 +195,23 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
     setSaving(true);
     setError("");
     try {
+      const opts = await importOptsFor(tab);
+      setConvertingWithAi(!!(opts.settings && hasAiApiKey(opts.settings)));
       const baseName =
         file.split(/[/\\]/).pop()?.replace(/\.(pdf|docx|md|txt)$/i, "") ?? "Imported";
-      let html: string;
+      let imported;
       if (kind === "markdown" || kind === "txt") {
-        html = markdownToHtml(await readTextFile(file));
+        const text = await readTextFile(file);
+        imported = await bytesToHtml(new TextEncoder().encode(text), kind, {
+          ...opts,
+          textFallback: text,
+        });
       } else {
         const bytes = await readFile(file);
-        html = await bytesToHtml(Uint8Array.from(bytes), kind);
+        imported = await bytesToHtml(Uint8Array.from(bytes), kind, opts);
       }
+      const html = imported.html;
+      if (imported.aiError) setAiErrorDetail(imported.aiError);
       if (!html.replace(/<[^>]+>/g, "").trim()) {
         throw new Error("Conversion produced empty content");
       }
@@ -189,6 +229,7 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
       setError(String(e));
     } finally {
       setSaving(false);
+      setConvertingWithAi(false);
     }
   };
 
@@ -206,21 +247,30 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
     }
   };
 
-  const deleteVersion = async () => {
+  const requestDeleteVersion = () => {
     if (!selected) return;
-    const ok = await confirm(
-      t("roles.deleteVersion").replace("{name}", selected.name),
-      { title: t("common.delete"), kind: "warning", okLabel: t("common.delete"), cancelLabel: t("common.cancel") },
-    );
-    if (!ok) return;
+    setDeleteTarget(selected);
+  };
+
+  const cancelDeleteVersion = () => {
+    if (saving) return;
+    setDeleteTarget(null);
+  };
+
+  const confirmDeleteVersion = async () => {
+    if (!deleteTarget) return;
     setSaving(true);
+    setError("");
     try {
-      await api.deleteRoleDocumentVersion(selected.id);
+      await api.deleteRoleDocumentVersion(deleteTarget.id);
+      setDeleteTarget(null);
       setSelectedId(null);
+      setContent("");
       await loadVersions();
       onChanged?.();
     } catch (e) {
       setError(String(e));
+      setDeleteTarget(null);
     } finally {
       setSaving(false);
     }
@@ -244,9 +294,40 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
 
   const busy = saving || converting;
   const showEditor = selected && (isEditableTextFormat(selected.format) || converting);
+  const deleteIsLast =
+    !!deleteTarget
+    && versions.filter((v) => v.doc_type === deleteTarget.doc_type).length <= 1;
+  const deleteMessage = deleteTarget
+    ? (deleteIsLast
+      ? t("roles.deleteLastVersion").replace("{name}", deleteTarget.name)
+      : t("roles.deleteVersion").replace("{name}", deleteTarget.name))
+    : "";
 
   return (
     <div className="role-document-versions">
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title={t("common.delete")}
+        message={deleteMessage}
+        danger
+        busy={saving}
+        onConfirm={confirmDeleteVersion}
+        onCancel={cancelDeleteVersion}
+      />
+      <ConfirmDialog
+        open={!!aiErrorDetail}
+        title={t("roles.aiImportFailed")}
+        message={`${t("roles.aiImportFailedHint")}\n\n${aiErrorDetail ?? ""}`}
+        alertOnly
+        confirmLabel={t("common.close")}
+        onConfirm={() => setAiErrorDetail(null)}
+        onCancel={() => setAiErrorDetail(null)}
+      />
+      <BusyModal
+        open={convertingWithAi}
+        title={t("roles.convertingAiTitle")}
+        message={t("roles.convertingAiBody")}
+      />
       <div className="doc-editor-toolbar">
         <div className="doc-tabs doc-tabs-lg">
           <button type="button" className={tab === "resume" ? "active" : ""} onClick={() => setTab("resume")}>
@@ -284,7 +365,9 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
             {t("roles.newDocument")}
           </button>
           <button type="button" className="btn btn-secondary" onClick={uploadFile} disabled={busy}>
-            {saving ? t("roles.converting") : t("roles.uploadFile")}
+            {saving
+              ? (convertingWithAi ? t("roles.convertingAi") : t("roles.converting"))
+              : t("roles.uploadFile")}
           </button>
         </div>
       </article>
@@ -312,8 +395,8 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
           <button type="button" className="btn btn-secondary" onClick={renameVersion} disabled={!selected || busy}>
             {t("roles.rename")}
           </button>
-          {tabVersions.length > 1 && (
-            <button type="button" className="btn btn-danger" onClick={deleteVersion} disabled={!selected || busy}>
+          {selected && (
+            <button type="button" className="btn btn-danger" onClick={requestDeleteVersion} disabled={busy}>
               {t("common.delete")}
             </button>
           )}
@@ -324,7 +407,7 @@ export function RoleDocumentVersionsPanel({ roleId, onChanged }: Props) {
             <>
               <p className="doc-editor-hint">
                 {converting
-                  ? t("roles.converting")
+                  ? (convertingWithAi ? t("roles.convertingAi") : t("roles.converting"))
                   : (
                     <>
                       {t("roles.editing")} <strong>{selected!.name}</strong> ({formatLabel(selected!.format === "markdown" ? "html" : selected!.format)})

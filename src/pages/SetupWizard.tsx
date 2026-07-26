@@ -1,28 +1,38 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
+import { BusyModal } from "../components/BusyModal";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { RoleDocumentEditor, type RoleDocTab } from "../components/RoleDocumentEditor";
 import { api } from "../lib/api";
+import { ensureSlotIds } from "../lib/contentSlots";
 import { importPathToHtml } from "../lib/ensureEditableHtml";
 import { useSession } from "../context/SessionContext";
+import { hasAiApiKey } from "../lib/ai";
+import { useI18n } from "../lib/i18n";
 
 export function SetupWizard() {
-  const { profile, setProfile, refreshSession } = useSession();
+  const { t } = useI18n();
+  const { profile, refreshSession, settings } = useSession();
   const navigate = useNavigate();
   const [step, setStep] = useState(profile ? (profile.setup_completed ? 4 : 2) : 1);
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const [aiErrorDetail, setAiErrorDetail] = useState<string | null>(null);
   const [roleName, setRoleName] = useState("");
   const [roleId, setRoleId] = useState<number | null>(null);
   const [resume, setResume] = useState("");
   const [letter, setLetter] = useState("");
+  const aiReady = !!(settings && hasAiApiKey(settings));
 
   const signIn = async () => {
     setLoading(true);
     setError("");
     try {
-      const p = await api.startGoogleAuth();
-      setProfile(p);
+      await api.startGoogleAuth();
+      // Reload profile + settings so AI document import has API keys available.
+      await refreshSession();
       setStep(2);
     } catch (e) {
       setError(String(e));
@@ -55,10 +65,10 @@ export function SetupWizard() {
       const resumeVersion = versions.find((v) => v.doc_type === "resume" && v.is_default);
       const letterVersion = versions.find((v) => v.doc_type === "letter" && v.is_default);
       if (resumeVersion) {
-        await api.updateRoleDocumentHtml(resumeVersion.id, resume);
+        await api.updateRoleDocumentHtml(resumeVersion.id, ensureSlotIds(resume));
       }
       if (letterVersion) {
-        await api.updateRoleDocumentHtml(letterVersion.id, letter);
+        await api.updateRoleDocumentHtml(letterVersion.id, ensureSlotIds(letter));
       }
       setStep(4);
     } catch (e) {
@@ -89,15 +99,21 @@ export function SetupWizard() {
       filters: [{ name: "Documents", extensions: ["md", "txt", "pdf", "docx"] }],
     });
     if (!file || typeof file !== "string") return;
+    setUploading(true);
     setLoading(true);
     setError("");
     try {
-      const content = await importPathToHtml(file);
-      if (docType === "resume") setResume(content);
-      else setLetter(content);
+      const imported = await importPathToHtml(file, {
+        settings,
+        docType,
+      });
+      if (imported.aiError) setAiErrorDetail(imported.aiError);
+      if (docType === "resume") setResume(imported.html);
+      else setLetter(imported.html);
     } catch (e) {
       setError(String(e));
     } finally {
+      setUploading(false);
       setLoading(false);
     }
   };
@@ -114,6 +130,20 @@ export function SetupWizard() {
   if (step === 3) {
     return (
       <div className="setup-wizard setup-wizard--documents">
+        <ConfirmDialog
+          open={!!aiErrorDetail}
+          title={t("roles.aiImportFailed")}
+          message={`${t("roles.aiImportFailedHint")}\n\n${aiErrorDetail ?? ""}`}
+          alertOnly
+          confirmLabel={t("common.close")}
+          onConfirm={() => setAiErrorDetail(null)}
+          onCancel={() => setAiErrorDetail(null)}
+        />
+        <BusyModal
+          open={uploading && aiReady}
+          title={t("roles.convertingAiTitle")}
+          message={t("roles.convertingAiBody")}
+        />
         <div className="setup-documents-shell">
           <header className="setup-documents-header">
             <div>
@@ -146,7 +176,7 @@ export function SetupWizard() {
             <button type="button" className="btn btn-primary" onClick={saveDocs}
               disabled={loading}
             >
-              {loading ? "Saving…" : "Continue"}
+              {loading && !uploading ? "Saving…" : "Continue"}
             </button>
           </footer>
         </div>

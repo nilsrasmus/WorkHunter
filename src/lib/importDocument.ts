@@ -1,10 +1,38 @@
 import mammoth from "mammoth";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import {
+  hasAiApiKey,
+  polishDocumentHtml,
+  reconstructDocumentHtmlFromImages,
+  type VisionImage,
+} from "./ai";
 import { ensureSlotIds } from "./contentSlots";
 import { markdownToHtml } from "./documentUtils";
+import type { ProfileSettings } from "../types";
 
 GlobalWorkerOptions.workerSrc = pdfWorker;
+
+export interface ImportOptions {
+  settings?: ProfileSettings | null;
+  docType?: "resume" | "letter";
+  /** Prefer AI design when an API key is configured (default true). */
+  useAi?: boolean;
+}
+
+/** Result of converting a file to editable HTML. */
+export interface HtmlImportResult {
+  html: string;
+  /** Set when AI design/polish was attempted but failed; structural HTML was used instead. */
+  aiError?: string;
+}
+
+const MAX_AI_PDF_PAGES = 4;
+
+function formatCaughtError(e: unknown): string {
+  if (e instanceof Error && e.message.trim()) return e.message.trim();
+  return String(e);
+}
 
 function sanitizeImportedHtml(html: string): string {
   const doc = new DOMParser().parseFromString(html || "<p></p>", "text/html");
@@ -29,8 +57,11 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** DOCX → slotted HTML via mammoth. */
-export async function docxToHtml(bytes: Uint8Array): Promise<string> {
+/** DOCX → slotted HTML via mammoth (optionally AI-polished). */
+export async function docxToHtml(
+  bytes: Uint8Array,
+  options: ImportOptions = {},
+): Promise<HtmlImportResult> {
   const arrayBuffer = bytes.buffer.slice(
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength,
@@ -48,7 +79,29 @@ export async function docxToHtml(bytes: Uint8Array): Promise<string> {
   if (!html.replace(/<[^>]+>/g, "").trim()) {
     throw new Error("DOCX contained no readable text");
   }
-  return ensureSlotIds(html);
+  const slotted = ensureSlotIds(html);
+  return maybePolishWithAi(slotted, options);
+}
+
+async function maybePolishWithAi(
+  html: string,
+  options: ImportOptions,
+): Promise<HtmlImportResult> {
+  const useAi = options.useAi !== false;
+  if (!useAi || !options.settings || !hasAiApiKey(options.settings)) {
+    return { html };
+  }
+  try {
+    const polished = await polishDocumentHtml(
+      options.settings,
+      html,
+      options.docType ?? "resume",
+    );
+    return { html: sanitizeImportedHtml(polished) };
+  } catch (e) {
+    console.warn("AI document polish failed; using structural import", e);
+    return { html, aiError: formatCaughtError(e) };
+  }
 }
 
 interface PdfGlyph {
@@ -183,15 +236,37 @@ function linesToHtmlBlocks(lines: PdfLine[]): string[] {
   return parts;
 }
 
-/** PDF → slotted HTML. Processes each page independently (never sort Y across pages). */
-export async function pdfToHtml(bytes: Uint8Array): Promise<string> {
-  // pdf.js may transfer/detach the ArrayBuffer — always pass a standalone copy.
+/** Render PDF pages to JPEG screenshots for vision AI (browser canvas). */
+export async function pdfPagesToImages(bytes: Uint8Array): Promise<VisionImage[]> {
   const data = Uint8Array.from(bytes);
-  const loadingTask = getDocument({
-    data,
-    useSystemFonts: true,
-  });
-  const pdf = await loadingTask.promise;
+  const pdf = await getDocument({ data, useSystemFonts: true }).promise;
+  const images: VisionImage[] = [];
+  const pageCount = Math.min(pdf.numPages, MAX_AI_PDF_PAGES);
+
+  for (let pageNum = 1; pageNum <= pageCount; pageNum += 1) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 2.5 });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Could not create canvas for PDF preview");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport, canvas }).promise;
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    const base64 = dataUrl.split(",")[1];
+    if (base64) {
+      images.push({ mimeType: "image/jpeg", base64 });
+    }
+  }
+  return images;
+}
+
+/** Plain text PDF extract (no AI) — fallback when vision is unavailable. */
+export async function pdfToHtmlText(bytes: Uint8Array): Promise<string> {
+  const data = Uint8Array.from(bytes);
+  const pdf = await getDocument({ data, useSystemFonts: true }).promise;
   const parts: string[] = [];
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
@@ -235,6 +310,32 @@ export async function pdfToHtml(bytes: Uint8Array): Promise<string> {
   return ensureSlotIds(html);
 }
 
+/** PDF → HTML: vision AI redesign when configured, otherwise text extract. */
+export async function pdfToHtml(
+  bytes: Uint8Array,
+  options: ImportOptions = {},
+): Promise<HtmlImportResult> {
+  const useAi = options.useAi !== false;
+  if (useAi && options.settings && hasAiApiKey(options.settings)) {
+    try {
+      const images = await pdfPagesToImages(bytes);
+      if (images.length > 0) {
+        const designed = await reconstructDocumentHtmlFromImages(
+          options.settings,
+          images,
+          options.docType ?? "resume",
+        );
+        return { html: sanitizeImportedHtml(designed) };
+      }
+    } catch (e) {
+      console.warn("AI PDF redesign failed; falling back to text extract", e);
+      const html = await pdfToHtmlText(bytes);
+      return { html, aiError: formatCaughtError(e) };
+    }
+  }
+  return { html: await pdfToHtmlText(bytes) };
+}
+
 export type ImportKind = "pdf" | "docx" | "markdown" | "txt";
 
 export function detectImportKind(fileName: string): ImportKind | null {
@@ -249,13 +350,16 @@ export function detectImportKind(fileName: string): ImportKind | null {
 export async function bytesToHtml(
   bytes: Uint8Array,
   kind: ImportKind,
-  textFallback?: string,
-): Promise<string> {
+  options: ImportOptions & { textFallback?: string } = {},
+): Promise<HtmlImportResult> {
   if (kind === "markdown" || kind === "txt") {
-    return markdownToHtml(textFallback ?? new TextDecoder().decode(bytes));
+    const html = markdownToHtml(
+      options.textFallback ?? new TextDecoder().decode(bytes),
+    );
+    return maybePolishWithAi(html, options);
   }
-  if (kind === "docx") return docxToHtml(bytes);
-  return pdfToHtml(bytes);
+  if (kind === "docx") return docxToHtml(bytes, options);
+  return pdfToHtml(bytes, options);
 }
 
 export function base64ToBytes(base64: string): Uint8Array {

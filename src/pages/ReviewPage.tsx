@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { AdPanel } from "../components/AdPanel";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { RichDocumentEditor } from "../components/RichDocumentEditor";
 import { api } from "../lib/api";
 import { detectApplicationMethod } from "../lib/applicationMethod";
 import { getAiProviderLabel, hasAiApiKey, tailorDocuments } from "../lib/ai";
 import { canTailorFormat } from "../lib/files";
 import { defaultPdfFileName } from "../lib/documentUtils";
+import { ensureSlotIds } from "../lib/contentSlots";
 import { ensureVersionHtml } from "../lib/ensureEditableHtml";
 import { useI18n } from "../lib/i18n";
 import { useSession } from "../context/SessionContext";
@@ -53,6 +55,7 @@ export function ReviewPage() {
   const [previewPdf, setPreviewPdf] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [error, setError] = useState("");
+  const [aiErrorDetail, setAiErrorDetail] = useState<string | null>(null);
 
   const buildDocState = (version: RoleDocumentVersion, content: string): DocState => ({
     versionId: version.id,
@@ -73,8 +76,8 @@ export function ReviewPage() {
       adDecisionId: d.id,
       tailoredResumeMd: "",
       tailoredLetterMd: "",
-      tailoredResumeHtml: resumeState.content,
-      tailoredLetterHtml: letterState.content,
+      tailoredResumeHtml: ensureSlotIds(resumeState.content),
+      tailoredLetterHtml: ensureSlotIds(letterState.content),
       resumeFormat: "html",
       letterFormat: "html",
       resumeFileName: resumeState.fileName ?? defaultPdfFileName("resume", "html"),
@@ -105,10 +108,12 @@ export function ReviewPage() {
           return;
         }
 
-        const resumeEnsured = await ensureVersionHtml(resumeRaw);
-        const letterEnsured = await ensureVersionHtml(letterRaw);
+        const resumeEnsured = await ensureVersionHtml(resumeRaw, { settings });
+        const letterEnsured = await ensureVersionHtml(letterRaw, { settings });
         const resumeVersion = resumeEnsured.version;
         const letterVersion = letterEnsured.version;
+        const importAiError = resumeEnsured.aiError || letterEnsured.aiError;
+        if (importAiError) setAiErrorDetail(importAiError);
 
         const existing = await api.getApplicationByDecision(d.id);
         if (existing) {
@@ -197,10 +202,12 @@ export function ReviewPage() {
         : null;
       if (!resumeRaw || !letterRaw) return;
 
-      const resumeEnsured = await ensureVersionHtml(resumeRaw);
-      const letterEnsured = await ensureVersionHtml(letterRaw);
+      const resumeEnsured = await ensureVersionHtml(resumeRaw, { settings });
+      const letterEnsured = await ensureVersionHtml(letterRaw, { settings });
       const resumeVersion = resumeEnsured.version;
       const letterVersion = letterEnsured.version;
+      const importAiError = resumeEnsured.aiError || letterEnsured.aiError;
+      if (importAiError) setAiErrorDetail(importAiError);
 
       const tailorOpts = {
         tailorResume: decision.tailor_resume && canTailorFormat(resumeVersion.format),
@@ -272,8 +279,8 @@ export function ReviewPage() {
       adDecisionId: decision.id,
       tailoredResumeMd: "",
       tailoredLetterMd: "",
-      tailoredResumeHtml: resume.content,
-      tailoredLetterHtml: letter.content,
+      tailoredResumeHtml: ensureSlotIds(resume.content),
+      tailoredLetterHtml: ensureSlotIds(letter.content),
       resumeFormat: "html",
       letterFormat: "html",
       resumeFileName: resume.fileName ?? defaultPdfFileName("resume", "html"),
@@ -306,6 +313,15 @@ export function ReviewPage() {
 
   return (
     <div className="page review-page">
+      <ConfirmDialog
+        open={!!aiErrorDetail}
+        title={t("roles.aiImportFailed")}
+        message={`${t("roles.aiImportFailedHint")}\n\n${aiErrorDetail ?? ""}`}
+        alertOnly
+        confirmLabel={t("common.close")}
+        onConfirm={() => setAiErrorDetail(null)}
+        onCancel={() => setAiErrorDetail(null)}
+      />
       <header className="page-header" role="group">
         <button type="button" className="btn btn-secondary" onClick={() => navigate("/")}>{t("review.back")}</button>
         <h1>{t("review.title")}</h1>

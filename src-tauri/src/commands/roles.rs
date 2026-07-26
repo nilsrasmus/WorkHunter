@@ -240,6 +240,19 @@ pub fn get_role_document_file_base64(
     })
 }
 
+fn count_versions_for_type(
+    conn: &rusqlite::Connection,
+    role_id: i64,
+    doc_type: &str,
+) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM role_document_versions WHERE role_id = ?1 AND doc_type = ?2",
+        params![role_id, doc_type],
+        |r| r.get(0),
+    )
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn create_role_document_markdown(
     state: State<DbState>,
@@ -251,10 +264,12 @@ pub fn create_role_document_markdown(
 ) -> Result<RoleDocumentVersion, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let now = db::now_iso();
-    if set_default {
+    // First document of this type becomes the default even if caller didn't ask.
+    let make_default = set_default || count_versions_for_type(&conn, role_id, &doc_type)? == 0;
+    if make_default {
         clear_default_for_type(&conn, role_id, &doc_type).map_err(|e| e.to_string())?;
     }
-    let is_default = if set_default { 1 } else { 0 };
+    let is_default = if make_default { 1 } else { 0 };
     conn.execute(
         "INSERT INTO role_document_versions (role_id, doc_type, name, format, content_md, is_default, created_at, updated_at)
          VALUES (?1, ?2, ?3, 'markdown', ?4, ?5, ?6, ?6)",
@@ -262,7 +277,7 @@ pub fn create_role_document_markdown(
     )
     .map_err(|e| e.to_string())?;
     let id = conn.last_insert_rowid();
-    if set_default {
+    if make_default {
         sync_legacy_document(&conn, role_id, &doc_type, &content_md, &now)?;
     }
     conn.execute(
@@ -284,10 +299,11 @@ pub fn create_role_document_html(
 ) -> Result<RoleDocumentVersion, String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let now = db::now_iso();
-    if set_default {
+    let make_default = set_default || count_versions_for_type(&conn, role_id, &doc_type)? == 0;
+    if make_default {
         clear_default_for_type(&conn, role_id, &doc_type).map_err(|e| e.to_string())?;
     }
-    let is_default = if set_default { 1 } else { 0 };
+    let is_default = if make_default { 1 } else { 0 };
     conn.execute(
         "INSERT INTO role_document_versions (role_id, doc_type, name, format, content_md, content_html, is_default, created_at, updated_at)
          VALUES (?1, ?2, ?3, 'html', '', ?4, ?5, ?6, ?6)",
@@ -446,16 +462,6 @@ pub fn set_default_role_document_version(
 pub fn delete_role_document_version(state: State<DbState>, version_id: i64) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|e| e.to_string())?;
     let version = get_version_by_id(&conn, version_id)?;
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM role_document_versions WHERE role_id = ?1 AND doc_type = ?2",
-            params![version.role_id, version.doc_type],
-            |r| r.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    if count <= 1 {
-        return Err("Cannot delete the only document version for this type".into());
-    }
     let was_default = version.is_default;
     let role_id = version.role_id;
     let doc_type = version.doc_type.clone();
@@ -464,16 +470,30 @@ pub fn delete_role_document_version(state: State<DbState>, version_id: i64) -> R
         [version_id],
     )
     .map_err(|e| e.to_string())?;
+
+    let replacement: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM role_document_versions WHERE role_id = ?1 AND doc_type = ?2 ORDER BY id LIMIT 1",
+            params![role_id, doc_type],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+
     if was_default {
-        let replacement: i64 = conn
-            .query_row(
-                "SELECT id FROM role_document_versions WHERE role_id = ?1 AND doc_type = ?2 ORDER BY id LIMIT 1",
-                params![role_id, doc_type],
-                |r| r.get(0),
+        if let Some(replacement_id) = replacement {
+            drop(conn);
+            set_default_role_document_version(state, replacement_id)?;
+        } else {
+            // Role now has no document of this type — clear legacy mirror.
+            let now = db::now_iso();
+            sync_legacy_document(&conn, role_id, &doc_type, "", &now)?;
+            conn.execute(
+                "UPDATE roles SET updated_at = ?1 WHERE id = ?2",
+                params![now, role_id],
             )
             .map_err(|e| e.to_string())?;
-        drop(conn);
-        set_default_role_document_version(state, replacement)?;
+        }
     }
     Ok(())
 }
