@@ -1694,6 +1694,7 @@ a:hover {
   border-radius: var(--r-md);
   color: var(--text);
   font: inherit;
+  margin: 0.15rem 0;
 }
 
 .roles-sidebar li button:hover {
