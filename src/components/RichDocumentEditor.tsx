@@ -23,6 +23,7 @@ import {
   ContentSlotExtension,
   createSlotId,
   PreserveBlockStyles,
+  PreserveMarkStyles,
   StyledDiv,
 } from "../lib/editor/contentSlotExtension";
 import "./MarkdownEditor.css";
@@ -113,6 +114,7 @@ export function RichDocumentEditor({
       StyledDiv,
       ContentSlotExtension,
       PreserveBlockStyles,
+      PreserveMarkStyles,
       TextStyle,
       FontSize,
       Color,

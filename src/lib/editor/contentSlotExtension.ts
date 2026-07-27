@@ -60,6 +60,19 @@ export const PreserveBlockStyles = Extension.create({
   },
 });
 
+/** Keep inline style= on bold/italic/underline/strike too — AI often colors via <strong style="..."> directly. */
+export const PreserveMarkStyles = Extension.create({
+  name: "preserveMarkStyles",
+  addGlobalAttributes() {
+    return [
+      {
+        types: ["bold", "italic", "underline", "strike"],
+        attributes: styleAttrs(),
+      },
+    ];
+  },
+});
+
 export const ContentSlotExtension = Extension.create({
   name: "contentSlot",
 
