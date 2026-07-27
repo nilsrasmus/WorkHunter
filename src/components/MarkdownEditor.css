@@ -205,25 +205,97 @@
   flex: 1;
 }
 
+.rich-toolbar-select-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.rich-toolbar-select-wrap--size .rich-toolbar-select {
+  max-width: 4.5rem;
+}
+
+.rich-toolbar-select-wrap--size .rich-toolbar-menu {
+  min-width: 4.5rem !important;
+}
+
 .rich-toolbar-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   height: 2rem;
   font-size: 0.8rem;
-  padding: 0 0.5rem;
+  padding: 0 0.4rem 0 0.5rem;
   border-radius: var(--r-sm);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
   max-width: 7rem;
   cursor: pointer;
+  margin: 0;
   transition: border-color .12s ease;
+}
+
+.rich-toolbar-select-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
 }
 
 .rich-toolbar-select:hover {
   border-color: var(--border-strong);
 }
 
-.rich-toolbar-select--size {
-  max-width: 4.5rem;
+.rich-toolbar-menu {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-elevated, var(--surface));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  color: var(--text);
+}
+
+.rich-toolbar-menu-group + .rich-toolbar-menu-group {
+  margin-top: 0.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.rich-toolbar-menu-group-label {
+  padding: 0.3rem 0.5rem 0.15rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-muted, var(--text-2));
+}
+
+.rich-toolbar-menu-item {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0.35rem 0.5rem;
+  border: none;
+  border-radius: calc(var(--r-sm) - 2px);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rich-toolbar-menu-item:hover {
+  background: var(--bg);
+}
+
+.rich-toolbar-menu-item.is-selected {
+  background: var(--primary-subtle);
+  color: var(--primary-text);
 }
 
 .rich-toolbar-color {

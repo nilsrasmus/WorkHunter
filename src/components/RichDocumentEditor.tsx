@@ -33,6 +33,11 @@ import {
   familyCssValue,
   uploadCustomFont,
 } from "../lib/documentFonts";
+import {
+  BUILTIN_FONT_GROUPS,
+  DEFAULT_FONT_OPTION,
+  FONT_SIZES,
+} from "../lib/editorFonts";
 import { pageBreakOffsets, pageContentHeightPx } from "../lib/pageBreaks";
 import { useSession } from "../context/SessionContext";
 import type { CustomFont } from "../types";
@@ -42,6 +47,7 @@ import {
   PreserveMarkStyles,
   StyledDiv,
 } from "../lib/editor/contentSlotExtension";
+import { ToolbarSelect } from "./ToolbarSelect";
 import "./MarkdownEditor.css";
 
 interface Props {
@@ -80,25 +86,6 @@ function ToolbarButton({
   );
 }
 
-const BUILTIN_FONTS = [
-  { label: "Default", value: "" },
-  { label: "Geist", value: "Geist Variable, sans-serif" },
-  { label: "Georgia", value: "Georgia, serif" },
-  { label: "Arial", value: "Arial, sans-serif" },
-  { label: "Mono", value: "Geist Mono Variable, monospace" },
-];
-
-const FONT_SIZES = [
-  { label: "Default", value: "" },
-  { label: "10", value: "10pt" },
-  { label: "11", value: "11pt" },
-  { label: "12", value: "12pt" },
-  { label: "14", value: "14pt" },
-  { label: "16", value: "16pt" },
-  { label: "18", value: "18pt" },
-  { label: "24", value: "24pt" },
-];
-
 export function RichDocumentEditor({
   value,
   onChange,
@@ -116,13 +103,19 @@ export function RichDocumentEditor({
   /** Skip setContent when `value` is echoing our own onChange (prevents cursor jump). */
   const lastEmittedHtml = useRef<string | null>(null);
 
-  const fontOptions = useMemo(() => {
-    const custom = customFonts.map((f) => ({
-      label: f.family,
-      value: familyCssValue(f.family),
-    }));
-    return [...BUILTIN_FONTS, ...custom];
-  }, [customFonts]);
+  const customFontOptions = useMemo(
+    () =>
+      customFonts.map((f) => ({
+        label: f.family,
+        value: familyCssValue(f.family),
+      })),
+    [customFonts],
+  );
+
+  const fontGroups = useMemo(() => {
+    if (customFontOptions.length === 0) return BUILTIN_FONT_GROUPS;
+    return [...BUILTIN_FONT_GROUPS, { label: "Custom", fonts: customFontOptions }];
+  }, [customFontOptions]);
 
   const extensions = useMemo(
     () => [
@@ -158,7 +151,7 @@ export function RichDocumentEditor({
     editorProps: {
       attributes: {
         class: "md-editor-content rich-editor-content",
-        spellcheck: "true",
+        spellcheck: "false",
       },
     },
     onUpdate: ({ editor: current }) => {
@@ -318,40 +311,32 @@ export function RichDocumentEditor({
           </div>
           <span className="md-toolbar-sep" aria-hidden />
           <div className="md-toolbar-group">
-            <select
-              className="rich-toolbar-select"
+            <ToolbarSelect
               title="Font family"
               value={editor.getAttributes("textStyle").fontFamily ?? ""}
-              onChange={(e) => {
-                const family = e.target.value;
+              leadingOption={DEFAULT_FONT_OPTION}
+              groups={fontGroups}
+              onChange={(family) => {
                 if (family) {
                   editor.chain().focus().setFontFamily(family).run();
                 } else {
                   editor.chain().focus().unsetFontFamily().run();
                 }
               }}
-            >
-              {fontOptions.map((opt) => (
-                <option key={`${opt.label}:${opt.value}`} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-            <select
-              className="rich-toolbar-select rich-toolbar-select--size"
+            />
+            <ToolbarSelect
+              className="rich-toolbar-select-wrap--size"
               title="Font size"
               value={editor.getAttributes("textStyle").fontSize ?? ""}
-              onChange={(e) => {
-                const size = e.target.value;
+              options={FONT_SIZES}
+              onChange={(size) => {
                 if (size) {
                   editor.chain().focus().setFontSize(size).run();
                 } else {
                   editor.chain().focus().unsetFontSize().run();
                 }
               }}
-            >
-              {FONT_SIZES.map((opt) => (
-                <option key={opt.label} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+            />
             <ToolbarButton
               icon={fontBusy ? <span className="md-toolbar-btn-label">…</span> : <IconTypography size={16} />}
               title="Upload font (.ttf, .otf, .woff)"
