@@ -35,9 +35,16 @@ import {
 } from "../lib/documentFonts";
 import {
   BUILTIN_FONT_GROUPS,
+  BUILTIN_FONTS,
   DEFAULT_FONT_OPTION,
   FONT_SIZES,
 } from "../lib/editorFonts";
+import {
+  resolveToolbarMarks,
+  resolveToolbarTypography,
+  type ToolbarMarks,
+  type ToolbarTypography,
+} from "../lib/editorTypography";
 import { pageBreakOffsets, pageContentHeightPx } from "../lib/pageBreaks";
 import { useSession } from "../context/SessionContext";
 import type { CustomFont } from "../types";
@@ -99,6 +106,15 @@ export function RichDocumentEditor({
   const [fontBusy, setFontBusy] = useState(false);
   const [breakYs, setBreakYs] = useState<number[]>([]);
   const [scrollTop, setScrollTop] = useState(0);
+  const [toolbarTypography, setToolbarTypography] = useState<ToolbarTypography>({
+    fontFamily: "",
+    fontSize: "",
+  });
+  const [toolbarMarks, setToolbarMarks] = useState<ToolbarMarks>({
+    bold: false,
+    italic: false,
+    underline: false,
+  });
   const shellRef = useRef<HTMLDivElement>(null);
   /** Skip setContent when `value` is echoing our own onChange (prevents cursor jump). */
   const lastEmittedHtml = useRef<string | null>(null);
@@ -110,6 +126,11 @@ export function RichDocumentEditor({
         value: familyCssValue(f.family),
       })),
     [customFonts],
+  );
+
+  const knownFonts = useMemo(
+    () => [...BUILTIN_FONTS, ...customFontOptions],
+    [customFontOptions],
   );
 
   const fontGroups = useMemo(() => {
@@ -172,6 +193,37 @@ export function RichDocumentEditor({
     if (!editor) return;
     editor.setEditable(!preview);
   }, [editor, preview]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const syncToolbar = () => {
+      setToolbarTypography((prev) => {
+        const next = resolveToolbarTypography(editor, knownFonts);
+        if (prev.fontFamily === next.fontFamily && prev.fontSize === next.fontSize) {
+          return prev;
+        }
+        return next;
+      });
+      setToolbarMarks((prev) => {
+        const next = resolveToolbarMarks(editor);
+        if (
+          prev.bold === next.bold
+          && prev.italic === next.italic
+          && prev.underline === next.underline
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    };
+    syncToolbar();
+    editor.on("selectionUpdate", syncToolbar);
+    editor.on("transaction", syncToolbar);
+    return () => {
+      editor.off("selectionUpdate", syncToolbar);
+      editor.off("transaction", syncToolbar);
+    };
+  }, [editor, knownFonts]);
 
   useEffect(() => {
     if (!editor) return;
@@ -272,19 +324,19 @@ export function RichDocumentEditor({
             <ToolbarButton
               icon={<IconBold size={16} />}
               title="Bold"
-              active={editor.isActive("bold")}
+              active={toolbarMarks.bold}
               onClick={() => editor.chain().focus().toggleBold().run()}
             />
             <ToolbarButton
               icon={<IconItalic size={16} />}
               title="Italic"
-              active={editor.isActive("italic")}
+              active={toolbarMarks.italic}
               onClick={() => editor.chain().focus().toggleItalic().run()}
             />
             <ToolbarButton
               icon={<IconUnderline size={16} />}
               title="Underline"
-              active={editor.isActive("underline")}
+              active={toolbarMarks.underline}
               onClick={() => editor.chain().focus().toggleUnderline().run()}
             />
           </div>
@@ -313,7 +365,7 @@ export function RichDocumentEditor({
           <div className="md-toolbar-group">
             <ToolbarSelect
               title="Font family"
-              value={editor.getAttributes("textStyle").fontFamily ?? ""}
+              value={toolbarTypography.fontFamily}
               leadingOption={DEFAULT_FONT_OPTION}
               groups={fontGroups}
               onChange={(family) => {
@@ -327,7 +379,7 @@ export function RichDocumentEditor({
             <ToolbarSelect
               className="rich-toolbar-select-wrap--size"
               title="Font size"
-              value={editor.getAttributes("textStyle").fontSize ?? ""}
+              value={toolbarTypography.fontSize}
               options={FONT_SIZES}
               onChange={(size) => {
                 if (size) {
