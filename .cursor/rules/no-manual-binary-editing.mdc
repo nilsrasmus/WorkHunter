@@ -1,0 +1,37 @@
+---
+description: Never hand-edit or manually retype base64/binary data — use scripts instead
+alwaysApply: true
+---
+
+# Handling Base64 and Binary Data
+
+Never try to copy, retype, or edit a base64 string (or any binary-derived text blob) directly
+by hand — e.g. pasting it into a tool call, writing it into a file via a text-editing tool, or
+manually truncating/reassembling it. These strings are long, have no visual structure, and a
+single dropped or altered character silently corrupts the decoded output (e.g. "unrecognised
+content at end of stream" when decoding a PNG).
+
+Instead, write a small script (Node/Python/shell) that programmatically handles the asset
+end-to-end: read the source, transform/decode/encode it, and write the result to disk. Do not
+route binary payloads through your own context as literal text.
+
+## Examples
+
+```bash
+# ❌ BAD — copying a giant base64 blob into a new file by hand, then decoding it
+# (error-prone: whitespace/line-wrap/truncation silently corrupts the data)
+```
+
+```javascript
+// ✅ GOOD — read the original response/file and decode programmatically
+const fs = require('fs');
+const j = JSON.parse(fs.readFileSync('response.json', 'utf8'));
+const data = j.result ? j.result.data : j.data;
+fs.writeFileSync('output.png', Buffer.from(data, 'base64'));
+```
+
+If a tool result contains inline base64 that isn't already saved to a file, prefer re-running
+the call in a way that forces it to be written to a file (e.g. request a larger payload, or use
+a tool option that saves to disk) rather than hand-copying the inline text.
+
+This applies to any binary-ish payload: images, fonts, PDFs, compiled artifacts, etc.

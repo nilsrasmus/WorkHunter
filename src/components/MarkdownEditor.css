@@ -2,13 +2,13 @@
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   background: var(--surface);
   overflow: hidden;
 }
 
 .md-editor--preview {
-  border-radius: 8px;
+  border-radius: var(--r-md);
 }
 
 .md-editor-loading {
@@ -20,40 +20,49 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.4rem 0.5rem;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
   border-bottom: 1px solid var(--border);
-  background: var(--surface-elevated);
+  background: var(--surface-2);
   flex-shrink: 0;
+}
+
+.md-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
 }
 
 .md-toolbar-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 2rem;
-  padding: 0.3rem 0.5rem;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: var(--r-sm);
   background: transparent;
-  color: var(--text);
-  font-size: 0.8rem;
-  font-weight: 600;
+  color: var(--text-2);
   line-height: 1;
   cursor: pointer;
-  width: auto;
   margin: 0;
+  transition: background .12s ease, color .12s ease;
+}
+
+.md-toolbar-btn svg {
+  display: block;
+  flex-shrink: 0;
 }
 
 .md-toolbar-btn:hover:not(:disabled) {
   background: var(--bg);
-  border-color: var(--border);
+  color: var(--text);
 }
 
 .md-toolbar-btn.is-active {
   background: var(--primary-subtle);
   color: var(--primary-text);
-  border-color: var(--primary);
 }
 
 .md-toolbar-btn:disabled {
@@ -61,11 +70,36 @@
   cursor: not-allowed;
 }
 
+.md-toolbar-btn-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Alignment buttons read as one connected control instead of three floating buttons. */
+.md-toolbar-segmented {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.md-toolbar-segmented .md-toolbar-btn {
+  border: none;
+  border-radius: 0;
+}
+
+.md-toolbar-segmented .md-toolbar-btn + .md-toolbar-btn {
+  border-left: 1px solid var(--border);
+}
+
 .md-toolbar-sep {
   width: 1px;
-  height: 1.25rem;
-  margin: 0 0.2rem;
+  height: 1.1rem;
   background: var(--border);
+  opacity: 0.7;
+  flex-shrink: 0;
 }
 
 /* Document page is always paper-white — matches PDF export, independent of app theme. */
@@ -172,13 +206,20 @@
 }
 
 .rich-toolbar-select {
+  height: 2rem;
   font-size: 0.8rem;
-  padding: 0.25rem 0.35rem;
-  border-radius: var(--radius);
+  padding: 0 0.5rem;
+  border-radius: var(--r-sm);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
   max-width: 7rem;
+  cursor: pointer;
+  transition: border-color .12s ease;
+}
+
+.rich-toolbar-select:hover {
+  border-color: var(--border-strong);
 }
 
 .rich-toolbar-select--size {
@@ -187,12 +228,31 @@
 
 .rich-toolbar-color {
   width: 2rem;
-  height: 1.75rem;
-  padding: 0;
+  height: 2rem;
+  padding: 0.2rem;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: transparent;
+  border-radius: var(--r-sm);
+  background: var(--surface);
   cursor: pointer;
+  transition: border-color .12s ease;
+}
+
+.rich-toolbar-color:hover {
+  border-color: var(--border-strong);
+}
+
+.rich-toolbar-color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.rich-toolbar-color::-webkit-color-swatch {
+  border: none;
+  border-radius: calc(var(--r-sm) - 2px);
+}
+
+.rich-toolbar-color::-moz-color-swatch {
+  border: none;
+  border-radius: calc(var(--r-sm) - 2px);
 }
 
 .rich-editor-content [data-wh-slot],

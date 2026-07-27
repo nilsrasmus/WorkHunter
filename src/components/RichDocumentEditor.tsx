@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -8,6 +9,22 @@ import { FontFamily } from "@tiptap/extension-font-family";
 import TextAlign from "@tiptap/extension-text-align";
 import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
+import {
+  IconAlignCenter,
+  IconAlignLeft,
+  IconAlignRight,
+  IconBlockquote,
+  IconBold,
+  IconH1,
+  IconH2,
+  IconH3,
+  IconItalic,
+  IconList,
+  IconListNumbers,
+  IconSeparatorHorizontal,
+  IconTypography,
+  IconUnderline,
+} from "@tabler/icons-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { useDocPreviewHeight } from "../lib/layout";
@@ -21,7 +38,6 @@ import { useSession } from "../context/SessionContext";
 import type { CustomFont } from "../types";
 import {
   ContentSlotExtension,
-  createSlotId,
   PreserveBlockStyles,
   PreserveMarkStyles,
   StyledDiv,
@@ -36,13 +52,13 @@ interface Props {
 }
 
 function ToolbarButton({
-  label,
+  icon,
   title,
   active,
   disabled,
   onClick,
 }: {
-  label: string;
+  icon: ReactNode;
   title: string;
   active?: boolean;
   disabled?: boolean;
@@ -59,7 +75,7 @@ function ToolbarButton({
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
-      {label}
+      {icon}
     </button>
   );
 }
@@ -223,29 +239,6 @@ export function RichDocumentEditor({
     };
   }, [editor, refreshPageBreaks]);
 
-  const toggleContentSlot = () => {
-    if (!editor) return;
-    const { $from } = editor.state.selection;
-    for (let depth = $from.depth; depth >= 0; depth -= 1) {
-      const node = $from.node(depth);
-      if (!node.isBlock) continue;
-      const pos = depth === 0 ? 0 : $from.before(depth);
-      const currentId = node.attrs["data-wh-slot"];
-      editor
-        .chain()
-        .focus()
-        .command(({ tr }) => {
-          tr.setNodeMarkup(pos, undefined, {
-            ...node.attrs,
-            "data-wh-slot": currentId ? null : createSlotId(),
-          });
-          return true;
-        })
-        .run();
-      return;
-    }
-  };
-
   const addFont = async () => {
     if (!profile) return;
     const file = await open({
@@ -266,9 +259,6 @@ export function RichDocumentEditor({
     }
   };
 
-  const hasActiveSlot = editor?.getAttributes("paragraph")["data-wh-slot"]
-    || editor?.getAttributes("heading")["data-wh-slot"];
-
   if (!editor) {
     return (
       <div className="md-editor" style={{ minHeight: resolvedHeight }}>
@@ -285,145 +275,144 @@ export function RichDocumentEditor({
     >
       {!preview && (
         <div className="md-toolbar rich-toolbar" role="toolbar" aria-label="Formatting">
-          <ToolbarButton
-            label="B"
-            title="Bold"
-            active={editor.isActive("bold")}
-            onClick={() => editor.chain().focus().toggleBold().run()}
-          />
-          <ToolbarButton
-            label="I"
-            title="Italic"
-            active={editor.isActive("italic")}
-            onClick={() => editor.chain().focus().toggleItalic().run()}
-          />
-          <ToolbarButton
-            label="U"
-            title="Underline"
-            active={editor.isActive("underline")}
-            onClick={() => editor.chain().focus().toggleUnderline().run()}
-          />
+          <div className="md-toolbar-group">
+            <ToolbarButton
+              icon={<IconBold size={16} />}
+              title="Bold"
+              active={editor.isActive("bold")}
+              onClick={() => editor.chain().focus().toggleBold().run()}
+            />
+            <ToolbarButton
+              icon={<IconItalic size={16} />}
+              title="Italic"
+              active={editor.isActive("italic")}
+              onClick={() => editor.chain().focus().toggleItalic().run()}
+            />
+            <ToolbarButton
+              icon={<IconUnderline size={16} />}
+              title="Underline"
+              active={editor.isActive("underline")}
+              onClick={() => editor.chain().focus().toggleUnderline().run()}
+            />
+          </div>
           <span className="md-toolbar-sep" aria-hidden />
-          <ToolbarButton
-            label="H1"
-            title="Heading 1"
-            active={editor.isActive("heading", { level: 1 })}
-            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-          />
-          <ToolbarButton
-            label="H2"
-            title="Heading 2"
-            active={editor.isActive("heading", { level: 2 })}
-            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-          />
-          <ToolbarButton
-            label="H3"
-            title="Heading 3"
-            active={editor.isActive("heading", { level: 3 })}
-            onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-          />
+          <div className="md-toolbar-group">
+            <ToolbarButton
+              icon={<IconH1 size={16} />}
+              title="Heading 1"
+              active={editor.isActive("heading", { level: 1 })}
+              onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+            />
+            <ToolbarButton
+              icon={<IconH2 size={16} />}
+              title="Heading 2"
+              active={editor.isActive("heading", { level: 2 })}
+              onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+            />
+            <ToolbarButton
+              icon={<IconH3 size={16} />}
+              title="Heading 3"
+              active={editor.isActive("heading", { level: 3 })}
+              onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+            />
+          </div>
           <span className="md-toolbar-sep" aria-hidden />
-          <select
-            className="rich-toolbar-select"
-            title="Font family"
-            value={editor.getAttributes("textStyle").fontFamily ?? ""}
-            onChange={(e) => {
-              const family = e.target.value;
-              if (family) {
-                editor.chain().focus().setFontFamily(family).run();
-              } else {
-                editor.chain().focus().unsetFontFamily().run();
-              }
-            }}
-          >
-            {fontOptions.map((opt) => (
-              <option key={`${opt.label}:${opt.value}`} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-          <select
-            className="rich-toolbar-select rich-toolbar-select--size"
-            title="Font size"
-            value={editor.getAttributes("textStyle").fontSize ?? ""}
-            onChange={(e) => {
-              const size = e.target.value;
-              if (size) {
-                editor.chain().focus().setFontSize(size).run();
-              } else {
-                editor.chain().focus().unsetFontSize().run();
-              }
-            }}
-          >
-            {FONT_SIZES.map((opt) => (
-              <option key={opt.label} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="md-toolbar-btn"
-            title="Upload font (.ttf, .otf, .woff)"
-            disabled={!profile || fontBusy}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={addFont}
-          >
-            {fontBusy ? "…" : "+Font"}
-          </button>
-          <input
-            type="color"
-            className="rich-toolbar-color"
-            title="Text color"
-            defaultValue="#12161A"
-            onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
-          />
+          <div className="md-toolbar-group">
+            <select
+              className="rich-toolbar-select"
+              title="Font family"
+              value={editor.getAttributes("textStyle").fontFamily ?? ""}
+              onChange={(e) => {
+                const family = e.target.value;
+                if (family) {
+                  editor.chain().focus().setFontFamily(family).run();
+                } else {
+                  editor.chain().focus().unsetFontFamily().run();
+                }
+              }}
+            >
+              {fontOptions.map((opt) => (
+                <option key={`${opt.label}:${opt.value}`} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <select
+              className="rich-toolbar-select rich-toolbar-select--size"
+              title="Font size"
+              value={editor.getAttributes("textStyle").fontSize ?? ""}
+              onChange={(e) => {
+                const size = e.target.value;
+                if (size) {
+                  editor.chain().focus().setFontSize(size).run();
+                } else {
+                  editor.chain().focus().unsetFontSize().run();
+                }
+              }}
+            >
+              {FONT_SIZES.map((opt) => (
+                <option key={opt.label} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <ToolbarButton
+              icon={fontBusy ? <span className="md-toolbar-btn-label">…</span> : <IconTypography size={16} />}
+              title="Upload font (.ttf, .otf, .woff)"
+              disabled={!profile || fontBusy}
+              onClick={addFont}
+            />
+            <input
+              type="color"
+              className="rich-toolbar-color"
+              title="Text color"
+              defaultValue="#12161A"
+              onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+            />
+          </div>
           <span className="md-toolbar-sep" aria-hidden />
-          <ToolbarButton
-            label="Left"
-            title="Align left"
-            active={editor.isActive({ textAlign: "left" })}
-            onClick={() => editor.chain().focus().setTextAlign("left").run()}
-          />
-          <ToolbarButton
-            label="Center"
-            title="Align center"
-            active={editor.isActive({ textAlign: "center" })}
-            onClick={() => editor.chain().focus().setTextAlign("center").run()}
-          />
-          <ToolbarButton
-            label="Right"
-            title="Align right"
-            active={editor.isActive({ textAlign: "right" })}
-            onClick={() => editor.chain().focus().setTextAlign("right").run()}
-          />
+          <div className="md-toolbar-segmented">
+            <ToolbarButton
+              icon={<IconAlignLeft size={16} />}
+              title="Align left"
+              active={editor.isActive({ textAlign: "left" })}
+              onClick={() => editor.chain().focus().setTextAlign("left").run()}
+            />
+            <ToolbarButton
+              icon={<IconAlignCenter size={16} />}
+              title="Align center"
+              active={editor.isActive({ textAlign: "center" })}
+              onClick={() => editor.chain().focus().setTextAlign("center").run()}
+            />
+            <ToolbarButton
+              icon={<IconAlignRight size={16} />}
+              title="Align right"
+              active={editor.isActive({ textAlign: "right" })}
+              onClick={() => editor.chain().focus().setTextAlign("right").run()}
+            />
+          </div>
           <span className="md-toolbar-sep" aria-hidden />
-          <ToolbarButton
-            label="• List"
-            title="Bullet list"
-            active={editor.isActive("bulletList")}
-            onClick={() => editor.chain().focus().toggleBulletList().run()}
-          />
-          <ToolbarButton
-            label="1. List"
-            title="Numbered list"
-            active={editor.isActive("orderedList")}
-            onClick={() => editor.chain().focus().toggleOrderedList().run()}
-          />
-          <ToolbarButton
-            label="Quote"
-            title="Quote"
-            active={editor.isActive("blockquote")}
-            onClick={() => editor.chain().focus().toggleBlockquote().run()}
-          />
-          <ToolbarButton
-            label="—"
-            title="Horizontal rule"
-            onClick={() => editor.chain().focus().setHorizontalRule().run()}
-          />
-          <span className="md-toolbar-sep" aria-hidden />
-          <ToolbarButton
-            label="AI"
-            title="Toggle AI-editable slot"
-            active={Boolean(hasActiveSlot)}
-            onClick={toggleContentSlot}
-          />
+          <div className="md-toolbar-group">
+            <ToolbarButton
+              icon={<IconList size={16} />}
+              title="Bullet list"
+              active={editor.isActive("bulletList")}
+              onClick={() => editor.chain().focus().toggleBulletList().run()}
+            />
+            <ToolbarButton
+              icon={<IconListNumbers size={16} />}
+              title="Numbered list"
+              active={editor.isActive("orderedList")}
+              onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            />
+            <ToolbarButton
+              icon={<IconBlockquote size={16} />}
+              title="Quote"
+              active={editor.isActive("blockquote")}
+              onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            />
+            <ToolbarButton
+              icon={<IconSeparatorHorizontal size={16} />}
+              title="Horizontal rule"
+              onClick={() => editor.chain().focus().setHorizontalRule().run()}
+            />
+          </div>
         </div>
       )}
       <div className="rich-editor-page">

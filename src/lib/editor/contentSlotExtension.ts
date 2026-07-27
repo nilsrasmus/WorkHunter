@@ -95,9 +95,5 @@ export const ContentSlotExtension = Extension.create({
   },
 });
 
-export function createSlotId(): string {
-  return `slot-${crypto.randomUUID().slice(0, 8)}`;
-}
-
 /** @deprecated Use StyledDiv — kept for existing imports. */
 export const ContentSlotDiv = StyledDiv;
